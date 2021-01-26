@@ -550,9 +550,45 @@ listeners(["stop", Proto, ListenOn]) ->
             emqx_ctl:print("Failed to stop ~s listener on ~s, error:~p~n", [Proto, ListenOn, Error])
     end;
 
+listeners(["restart", Proto, ListenOn]) ->
+    Listener = find_listener(Proto, ListenOn),
+    case emqx_listeners:restart_listener(Listener) of
+        ok ->
+            emqx_ctl:print("Restarted ~s listener on ~s successfully.~n", [Proto, ListenOn]);
+        {error, Error} ->
+            emqx_ctl:print("Failed to restart ~s listener on ~s, error:~p~n", [Proto, ListenOn, Error])
+    end;
+
 listeners(_) ->
     emqx_ctl:usage([{"listeners",                        "List listeners"},
                     {"listeners stop    <Proto> <Port>", "Stop a listener"}]).
+
+find_listener("mqtt:" ++ Proto0, ListenOn0) ->
+    Proto = list_to_existing_atom(Proto0),
+    ListenOn = case string:tokens(ListenOn0, ":") of
+        [Port] ->
+            list_to_integer(Port);
+        [IP, Port] ->
+            case inet:parse_address(IP) of
+                {ok, NIP} ->
+                   {NIP, list_to_integer(Port)};
+                _ ->
+                    throw(not_found)
+            end
+    end,
+    Listeners = lists:filter(fun({LisProto, LisListenOn, _}) ->
+        LisProto == Proto andalso
+        case ListenOn of
+            ListenOn when is_integer(ListenOn) ->
+                LisListenOn == ListenOn  orelse {{0,0,0,0}, ListenOn} == LisListenOn;
+            _ ->
+                LisListenOn == ListenOn
+        end
+    end, emqx:get_env(listeners, [])),
+    case Listeners of
+        [] -> throw(not_found);
+        [L] -> L
+    end.
 
 %%--------------------------------------------------------------------
 %% @doc data Command
