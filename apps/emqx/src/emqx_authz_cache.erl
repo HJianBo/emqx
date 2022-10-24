@@ -171,7 +171,7 @@ drain_cache() ->
     _ = persistent_term:put(drain_k(), time_now()),
     ok.
 
--spec drain_cache(emqx_types:clientid()) -> ok | {error, not_found}.
+-spec drain_cache(emqx_clientid:grouped_clientid()) -> ok | {error, not_found}.
 drain_cache(ClientId) ->
     case emqx_cm:lookup_channels(ClientId) of
         [] ->

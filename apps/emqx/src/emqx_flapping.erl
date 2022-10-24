@@ -50,7 +50,7 @@
 }).
 
 -record(flapping, {
-    clientid :: emqx_types:clientid(),
+    clientid :: emqx_clientid:grouped_clientid(),
     peerhost :: emqx_types:peerhost(),
     started_at :: pos_integer(),
     detect_cnt :: integer()

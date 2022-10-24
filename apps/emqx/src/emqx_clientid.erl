@@ -16,20 +16,26 @@
 
 -module(emqx_clientid).
 
--export([en/1, de/1]).
+-export([comp/2, uncomp/1, parse/1]).
 
--type grouped_clientid() :: {emqx_types:tenant(), emqx_types:clientid()}.
+-type clientid() :: binary() | atom().
 
--spec en(emqx_types:clientinfo()) -> grouped_clientid().
-en(#{clientid := ClientId, tenant := Tenant}) ->
-    {Tenant, ClientId};
-en(#{clientid := ClientId}) ->
-    {undefined, ClientId};
-en(_) ->
+-type grouped_clientid() :: {emqx_types:tenant(), clientid()}.
+
+-export_type([clientid/0, grouped_clientid/0]).
+
+-spec comp(emqx_types:tenant(), clientid()) -> grouped_clientid().
+comp(Tenant, ClientId) ->
+    {Tenant, ClientId}.
+
+-spec uncomp(grouped_clientid()) -> clientid().
+uncomp({_, ClientId}) ->
+    ClientId;
+uncomp(_) ->
     error(badarg).
 
--spec de(grouped_clientid()) -> emqx_types:clientid().
-de({_, ClientId}) ->
-    ClientId;
-de(_) ->
+-spec parse(grouped_clientid()) -> {emqx_types:tenant(), clientid()}.
+parse({Tenant, ClientId}) ->
+    {Tenant, ClientId};
+parse(_) ->
     error(badarg).

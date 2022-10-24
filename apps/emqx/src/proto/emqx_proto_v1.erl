@@ -56,7 +56,7 @@ get_stats(Node) ->
 get_metrics(Node) ->
     rpc:call(Node, emqx_metrics, all, []).
 
--spec clean_authz_cache(node(), emqx_types:clientid()) ->
+-spec clean_authz_cache(node(), emqx_clientid:grouped_clientid()) ->
     ok
     | {error, not_found}
     | {badrpc, _}.

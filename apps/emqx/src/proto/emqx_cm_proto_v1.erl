@@ -38,29 +38,33 @@
 introduced_in() ->
     "5.0.0".
 
--spec kickout_client(node(), emqx_types:clientid()) -> ok | {badrpc, _}.
+-spec kickout_client(node(), emqx_clientid:grouped_clientid()) -> ok | {badrpc, _}.
 kickout_client(Node, ClientId) ->
     rpc:call(Node, emqx_cm, kick_session, [ClientId]).
 
--spec lookup_client(node(), {clientid, emqx_types:clientid()} | {username, emqx_types:username()}) ->
+-spec lookup_client(
+    node(), {clientid, emqx_clientid:grouped_clientid()} | {username, emqx_types:username()}
+) ->
     [emqx_cm:channel_info()] | {badrpc, _}.
 lookup_client(Node, Key) ->
     rpc:call(Node, emqx_cm, lookup_client, [Key]).
 
--spec get_chan_stats(emqx_types:clientid(), emqx_cm:chan_pid()) -> emqx_types:stats() | {badrpc, _}.
+-spec get_chan_stats(emqx_clientid:grouped_clientid(), emqx_cm:chan_pid()) ->
+    emqx_types:stats() | {badrpc, _}.
 get_chan_stats(ClientId, ChanPid) ->
     rpc:call(node(ChanPid), emqx_cm, do_get_chan_stats, [ClientId, ChanPid], ?T_GET_INFO * 2).
 
--spec get_chan_info(emqx_types:clientid(), emqx_cm:chan_pid()) -> emqx_types:infos() | {badrpc, _}.
+-spec get_chan_info(emqx_clientid:grouped_clientid(), emqx_cm:chan_pid()) ->
+    emqx_types:infos() | {badrpc, _}.
 get_chan_info(ClientId, ChanPid) ->
     rpc:call(node(ChanPid), emqx_cm, do_get_chan_info, [ClientId, ChanPid], ?T_GET_INFO * 2).
 
--spec get_chann_conn_mod(emqx_types:clientid(), emqx_cm:chan_pid()) ->
+-spec get_chann_conn_mod(emqx_clientid:grouped_clientid(), emqx_cm:chan_pid()) ->
     module() | undefined | {badrpc, _}.
 get_chann_conn_mod(ClientId, ChanPid) ->
     rpc:call(node(ChanPid), emqx_cm, do_get_chann_conn_mod, [ClientId, ChanPid], ?T_GET_INFO * 2).
 
--spec takeover_session(emqx_types:clientid(), emqx_cm:chan_pid()) ->
+-spec takeover_session(emqx_clientid:grouped_clientid(), emqx_cm:chan_pid()) ->
     none
     | {expired | persistent, emqx_session:session()}
     | {living, _ConnMod :: atom(), emqx_cm:chan_pid(), emqx_session:session()}
@@ -68,6 +72,7 @@ get_chann_conn_mod(ClientId, ChanPid) ->
 takeover_session(ClientId, ChanPid) ->
     rpc:call(node(ChanPid), emqx_cm, takeover_session, [ClientId, ChanPid], ?T_TAKEOVER * 2).
 
--spec kick_session(kick | discard, emqx_types:clientid(), emqx_cm:chan_pid()) -> ok | {badrpc, _}.
+-spec kick_session(kick | discard, emqx_clientid:grouped_clientid(), emqx_cm:chan_pid()) ->
+    ok | {badrpc, _}.
 kick_session(Action, ClientId, ChanPid) ->
     rpc:call(node(ChanPid), emqx_cm, do_kick_session, [Action, ClientId, ChanPid], ?T_KICK * 2).

@@ -137,7 +137,7 @@ critical(Format, Args) ->
 critical(Metadata, Format, Args) when is_map(Metadata) ->
     logger:critical(Format, Args, Metadata).
 
--spec set_metadata_clientid(emqx_types:clientid()) -> ok.
+-spec set_metadata_clientid(emqx_clientid:clientid()) -> ok.
 set_metadata_clientid(<<>>) ->
     ok;
 set_metadata_clientid(ClientId) ->

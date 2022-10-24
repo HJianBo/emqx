@@ -205,11 +205,13 @@ timestamp_from_conninfo(ConnInfo) ->
         Disconnect -> Disconnect
     end.
 
-lookup(ClientID) when is_binary(ClientID) ->
+lookup(ClientID) ->
     case is_store_enabled() of
         false ->
             none;
         true ->
+            %% FIXME: assert Client ID
+            true = is_binary(ClientID),
             case lookup_session_store(ClientID) of
                 none ->
                     none;
