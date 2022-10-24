@@ -44,7 +44,7 @@
 -type tracer() :: #{
     name := binary(),
     type := clientid | topic | ip_address,
-    filter := emqx_types:clientid() | emqx_types:topic() | emqx_trace:ip_address()
+    filter := emqx_clientid:grouped_clientid() | emqx_types:topic() | emqx_trace:ip_address()
 }.
 
 -define(CONFIG(_LogFile_), #{
@@ -65,7 +65,7 @@
 -spec install(
     Name :: binary() | list(),
     Type :: clientid | topic | ip_address,
-    Filter :: emqx_types:clientid() | emqx_types:topic() | string(),
+    Filter :: emqx_clientid:grouped_clientid() | emqx_types:topic() | string(),
     Level :: logger:level() | all,
     LogFilePath :: string()
 ) -> ok | {error, term()}.
@@ -75,7 +75,7 @@ install(Name, Type, Filter, Level, LogFile) ->
 
 -spec install(
     Type :: clientid | topic | ip_address,
-    Filter :: emqx_types:clientid() | emqx_types:topic() | string(),
+    Filter :: emqx_clientid:grouped_clientid() | emqx_types:topic() | string(),
     Level :: logger:level() | all,
     LogFilePath :: string()
 ) -> ok | {error, term()}.

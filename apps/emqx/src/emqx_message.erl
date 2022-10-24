@@ -98,7 +98,7 @@ make(Topic, Payload) ->
     make(undefined, Topic, Payload).
 
 -spec make(
-    emqx_types:clientid(),
+    emqx_clientid:grouped_clientid(),
     emqx_types:topic(),
     emqx_types:payload()
 ) -> emqx_types:message().
@@ -106,7 +106,7 @@ make(From, Topic, Payload) ->
     make(From, ?QOS_0, Topic, Payload).
 
 -spec make(
-    emqx_types:clientid(),
+    emqx_clientid:grouped_clientid(),
     emqx_types:qos(),
     emqx_types:topic(),
     emqx_types:payload()
@@ -123,7 +123,7 @@ make(From, QoS, Topic, Payload) when ?QOS_0 =< QoS, QoS =< ?QOS_2 ->
     }.
 
 -spec make(
-    emqx_types:clientid(),
+    emqx_clientid:grouped_clientid(),
     emqx_types:qos(),
     emqx_types:topic(),
     emqx_types:payload(),
@@ -150,7 +150,7 @@ make(From, QoS, Topic, Payload, Flags, Headers) when
 
 -spec make(
     MsgId :: binary(),
-    emqx_types:clientid(),
+    emqx_clientid:grouped_clientid(),
     emqx_types:qos(),
     emqx_types:topic(),
     emqx_types:payload(),

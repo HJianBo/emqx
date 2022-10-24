@@ -22,7 +22,11 @@
     name :: binary() | undefined | '_',
     type :: clientid | topic | ip_address | undefined | '_',
     filter ::
-        emqx_types:topic() | emqx_types:clientid() | emqx_trace:ip_address() | undefined | '_',
+        emqx_types:topic()
+        | emqx_clientid:grouped_clientid()
+        | emqx_trace:ip_address()
+        | undefined
+        | '_',
     enable = true :: boolean() | '_',
     start_at :: integer() | undefined | '_',
     end_at :: integer() | undefined | '_'

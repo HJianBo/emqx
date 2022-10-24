@@ -222,7 +222,7 @@ look_up(Who) ->
     mnesia:dirty_read(?BANNED_TAB, Who).
 
 -spec delete(
-    {clientid, emqx_types:clientid()}
+    {clientid, emqx_clientid:grouped_clientid()}
     | {username, emqx_types:username()}
     | {peerhost, emqx_types:peerhost()}
 ) -> ok.

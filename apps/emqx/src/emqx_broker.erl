@@ -86,7 +86,7 @@
 -define(SUBSCRIPTION, emqx_subscription).
 
 %% Guards
--define(IS_SUBID(Id), (is_binary(Id) orelse is_atom(Id))).
+-define(IS_SUBID(Id), (is_binary(Id) orelse is_atom(Id) orelse is_tuple(Id))).
 
 -spec start_link(atom(), pos_integer()) -> startlink_ret().
 start_link(Pool, Id) ->

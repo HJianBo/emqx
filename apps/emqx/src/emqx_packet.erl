@@ -419,12 +419,13 @@ validate_topic_filters(TopicFilters) ->
         TopicFilters
     ).
 
--spec to_message(emqx_types:packet(), emqx_types:clientid()) -> emqx_types:message().
+-spec to_message(emqx_types:packet(), emqx_clientid:grouped_clientid()) -> emqx_types:message().
 to_message(Packet, ClientId) ->
     to_message(Packet, ClientId, #{}).
 
 %% @doc Transform Publish Packet to Message.
--spec to_message(emqx_types:packet(), emqx_types:clientid(), map()) -> emqx_types:message().
+-spec to_message(emqx_types:packet(), emqx_clientid:grouped_clientid(), map()) ->
+    emqx_types:message().
 to_message(
     #mqtt_packet{
         header = #mqtt_packet_header{

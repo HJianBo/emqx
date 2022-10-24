@@ -43,7 +43,7 @@ forward(Node, Topic, Delivery = #delivery{}) when is_binary(Topic) ->
 forward_async(Node, Topic, Delivery = #delivery{}) when is_binary(Topic) ->
     emqx_rpc:cast(Topic, Node, emqx_broker, dispatch, [Topic, Delivery]).
 
--spec list_client_subscriptions(node(), emqx_types:clientid()) ->
+-spec list_client_subscriptions(node(), emqx_clientid:grouped_clientid()) ->
     [{emqx_types:topic(), emqx_types:subopts()}]
     | emqx_rpc:badrpc().
 list_client_subscriptions(Node, ClientId) ->
