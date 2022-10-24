@@ -147,6 +147,7 @@
 }.
 -type clientinfo() :: #{
     zone := maybe(zone()),
+    tenant := tenant(),
     protocol := protocol(),
     peerhost := peerhost(),
     sockport := non_neg_integer(),
@@ -163,6 +164,7 @@
     dn => binary(),
     atom() => term()
 }.
+-type tenant() :: maybe(binary()).
 -type clientid() :: binary() | atom().
 -type username() :: maybe(binary()).
 -type password() :: maybe(binary()).

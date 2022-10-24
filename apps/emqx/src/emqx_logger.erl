@@ -43,6 +43,7 @@
 -export([
     set_metadata_peername/1,
     set_metadata_clientid/1,
+    set_metadata_tenant/1,
     set_proc_metadata/1,
     set_primary_log_level/1,
     set_log_handler_level/2,
@@ -145,6 +146,10 @@ set_metadata_clientid(ClientId) ->
 -spec set_metadata_peername(peername_str()) -> ok.
 set_metadata_peername(Peername) ->
     set_proc_metadata(#{peername => Peername}).
+
+-spec set_metadata_tenant(emqx_types:tenant()) -> ok.
+set_metadata_tenant(Tenant) ->
+    set_proc_metadata(#{tenant => Tenant}).
 
 -spec set_proc_metadata(logger:metadata()) -> ok.
 set_proc_metadata(Meta) ->
