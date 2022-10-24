@@ -343,8 +343,8 @@ handle_in(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
                 fun enrich_conninfo/2,
                 fun run_conn_hooks/2,
                 fun check_connect/2,
-                fun set_tenant/2,
                 fun enrich_client/2,
+                fun grouping_clientid/2,
                 fun set_log_meta/2,
                 fun check_banned/2,
                 fun count_flapping_event/2
@@ -1555,9 +1555,9 @@ check_connect(ConnPkt, #channel{clientinfo = #{zone := Zone}}) ->
     emqx_packet:check(ConnPkt, emqx_mqtt_caps:get_caps(Zone)).
 
 %%--------------------------------------------------------------------
-%% Set Tenant ID
+%% Grouping Client ID
 
-set_tenant(
+grouping_clientid(
     ConnPkt,
     Channel = #channel{
         conninfo = ConnInfo,
@@ -1565,7 +1565,10 @@ set_tenant(
     }
 ) ->
     NClientInfo = ClientInfo#{
-        tenant => maps:get(peersni, ConnInfo, undefined)
+        clientid => emqx_clientid:comp(
+            maps:get(peersni, ConnInfo, undefined),
+            maps:get(clientid, ClientInfo)
+        )
     },
     {ok, ConnPkt, Channel#channel{clientinfo = NClientInfo}}.
 
@@ -1640,10 +1643,10 @@ fix_mountpoint(_ConnPkt, ClientInfo = #{mountpoint := MountPoint}) ->
 
 set_log_meta(_ConnPkt, #channel{
     clientinfo = #{
-        clientid := ClientId,
-        tenant := Tenant
+        clientid := GroupedClientId
     }
 }) ->
+    {Tenant, ClientId} = emqx_clientid:parse(GroupedClientId),
     emqx_logger:set_metadata_tenant(Tenant),
     emqx_logger:set_metadata_clientid(ClientId).
 

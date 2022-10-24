@@ -102,7 +102,7 @@
 -type chan_pid() :: pid().
 
 -type channel_info() :: {
-    _Chan :: {emqx_types:clientid(), pid()},
+    _Chan :: {emqx_clientid:grouped_clientid(), pid()},
     _Info :: emqx_types:infos(),
     _Stats :: emqx_types:stats()
 }.
@@ -145,7 +145,7 @@ start_link() ->
 
 %% @doc Insert/Update the channel info and stats to emqx_channel table
 -spec insert_channel_info(
-    emqx_types:clientid(),
+    emqx_clientid:grouped_clientid(),
     emqx_types:infos(),
     emqx_types:stats()
 ) -> ok.
@@ -172,8 +172,8 @@ register_channel(ClientId, ChanPid, #{conn_mod := ConnMod}) when is_pid(ChanPid)
     cast({registered, Chan}).
 
 %% @doc Unregister a channel.
--spec unregister_channel(emqx_types:clientid()) -> ok.
-unregister_channel(ClientId) when is_binary(ClientId) ->
+-spec unregister_channel(emqx_clientid:grouped_clientid()) -> ok.
+unregister_channel(ClientId) when is_tuple(ClientId) ->
     true = do_unregister_channel({ClientId, self()}),
     ok.
 
@@ -184,20 +184,20 @@ do_unregister_channel(Chan) ->
     true = ets:delete(?CHAN_INFO_TAB, Chan),
     ets:delete_object(?CHAN_TAB, Chan).
 
--spec connection_closed(emqx_types:clientid()) -> true.
+-spec connection_closed(emqx_clientid:grouped_clientid()) -> true.
 connection_closed(ClientId) ->
     connection_closed(ClientId, self()).
 
--spec connection_closed(emqx_types:clientid(), chan_pid()) -> true.
+-spec connection_closed(emqx_clientid:grouped_clientid(), chan_pid()) -> true.
 connection_closed(ClientId, ChanPid) ->
     ets:delete_object(?CHAN_CONN_TAB, {ClientId, ChanPid}).
 
 %% @doc Get info of a channel.
--spec get_chan_info(emqx_types:clientid()) -> maybe(emqx_types:infos()).
+-spec get_chan_info(emqx_clientid:grouped_clientid()) -> maybe(emqx_types:infos()).
 get_chan_info(ClientId) ->
     with_channel(ClientId, fun(ChanPid) -> get_chan_info(ClientId, ChanPid) end).
 
--spec do_get_chan_info(emqx_types:clientid(), chan_pid()) ->
+-spec do_get_chan_info(emqx_clientid:grouped_clientid(), chan_pid()) ->
     maybe(emqx_types:infos()).
 do_get_chan_info(ClientId, ChanPid) ->
     Chan = {ClientId, ChanPid},
@@ -207,14 +207,14 @@ do_get_chan_info(ClientId, ChanPid) ->
         error:badarg -> undefined
     end.
 
--spec get_chan_info(emqx_types:clientid(), chan_pid()) ->
+-spec get_chan_info(emqx_clientid:grouped_clientid(), chan_pid()) ->
     maybe(emqx_types:infos()).
 get_chan_info(ClientId, ChanPid) ->
     wrap_rpc(emqx_cm_proto_v1:get_chan_info(ClientId, ChanPid)).
 
 %% @doc Update infos of the channel.
--spec set_chan_info(emqx_types:clientid(), emqx_types:attrs()) -> boolean().
-set_chan_info(ClientId, Info) when is_binary(ClientId) ->
+-spec set_chan_info(emqx_clientid:grouped_clientid(), emqx_types:attrs()) -> boolean().
+set_chan_info(ClientId, Info) when is_tuple(ClientId) ->
     Chan = {ClientId, self()},
     try
         ets:update_element(?CHAN_INFO_TAB, Chan, {2, Info})
@@ -223,11 +223,11 @@ set_chan_info(ClientId, Info) when is_binary(ClientId) ->
     end.
 
 %% @doc Get channel's stats.
--spec get_chan_stats(emqx_types:clientid()) -> maybe(emqx_types:stats()).
+-spec get_chan_stats(emqx_clientid:grouped_clientid()) -> maybe(emqx_types:stats()).
 get_chan_stats(ClientId) ->
     with_channel(ClientId, fun(ChanPid) -> get_chan_stats(ClientId, ChanPid) end).
 
--spec do_get_chan_stats(emqx_types:clientid(), chan_pid()) ->
+-spec do_get_chan_stats(emqx_clientid:grouped_clientid(), chan_pid()) ->
     maybe(emqx_types:stats()).
 do_get_chan_stats(ClientId, ChanPid) ->
     Chan = {ClientId, ChanPid},
@@ -237,17 +237,17 @@ do_get_chan_stats(ClientId, ChanPid) ->
         error:badarg -> undefined
     end.
 
--spec get_chan_stats(emqx_types:clientid(), chan_pid()) ->
+-spec get_chan_stats(emqx_clientid:grouped_clientid(), chan_pid()) ->
     maybe(emqx_types:stats()).
 get_chan_stats(ClientId, ChanPid) ->
     wrap_rpc(emqx_cm_proto_v1:get_chan_stats(ClientId, ChanPid)).
 
 %% @doc Set channel's stats.
--spec set_chan_stats(emqx_types:clientid(), emqx_types:stats()) -> boolean().
-set_chan_stats(ClientId, Stats) when is_binary(ClientId) ->
+-spec set_chan_stats(emqx_clientid:grouped_clientid(), emqx_types:stats()) -> boolean().
+set_chan_stats(ClientId, Stats) when is_tuple(ClientId) ->
     set_chan_stats(ClientId, self(), Stats).
 
--spec set_chan_stats(emqx_types:clientid(), chan_pid(), emqx_types:stats()) ->
+-spec set_chan_stats(emqx_clientid:grouped_clientid(), chan_pid(), emqx_types:stats()) ->
     boolean().
 set_chan_stats(ClientId, ChanPid, Stats) ->
     Chan = {ClientId, ChanPid},
@@ -374,7 +374,7 @@ get_mqtt_conf(Zone, Key) ->
     emqx_config:get_zone_conf(Zone, [mqtt, Key]).
 
 %% @doc Try to takeover a session.
--spec takeover_session(emqx_types:clientid()) ->
+-spec takeover_session(emqx_clientid:grouped_clientid()) ->
     none
     | {living, atom(), pid(), emqx_session:session()}
     | {persistent, emqx_session:session()}
@@ -429,8 +429,8 @@ do_takeover_session(ClientId, ChanPid) ->
     wrap_rpc(emqx_cm_proto_v1:takeover_session(ClientId, ChanPid)).
 
 %% @doc Discard all the sessions identified by the ClientId.
--spec discard_session(emqx_types:clientid()) -> ok.
-discard_session(ClientId) when is_binary(ClientId) ->
+-spec discard_session(emqx_clientid:grouped_clientid()) -> ok.
+discard_session(ClientId) ->
     case lookup_channels(ClientId) of
         [] -> ok;
         ChanPids -> lists:foreach(fun(Pid) -> discard_session(ClientId, Pid) end, ChanPids)
@@ -515,7 +515,7 @@ discard_session(ClientId, ChanPid) ->
 kick_session(ClientId, ChanPid) ->
     kick_session(kick, ClientId, ChanPid).
 
--spec do_kick_session(kick | discard, emqx_types:clientid(), chan_pid()) -> ok.
+-spec do_kick_session(kick | discard, emqx_clientid:grouped_clientid(), chan_pid()) -> ok.
 do_kick_session(Action, ClientId, ChanPid) ->
     case get_chann_conn_mod(ClientId, ChanPid) of
         undefined ->
@@ -596,12 +596,12 @@ all_client_ids() ->
     ets:select(?CHAN_TAB, Pat).
 
 %% @doc Lookup channels.
--spec lookup_channels(emqx_types:clientid()) -> list(chan_pid()).
+-spec lookup_channels(emqx_clientid:grouped_clientid()) -> list(chan_pid()).
 lookup_channels(ClientId) ->
     lookup_channels(global, ClientId).
 
 %% @doc Lookup local or global channels.
--spec lookup_channels(local | global, emqx_types:clientid()) -> list(chan_pid()).
+-spec lookup_channels(local | global, emqx_clientid:grouped_clientid()) -> list(chan_pid()).
 lookup_channels(global, ClientId) ->
     case emqx_cm_registry:is_enabled() of
         true ->
@@ -612,7 +612,9 @@ lookup_channels(global, ClientId) ->
 lookup_channels(local, ClientId) ->
     [ChanPid || {_, ChanPid} <- ets:lookup(?CHAN_TAB, ClientId)].
 
--spec lookup_client({clientid, emqx_types:clientid()} | {username, emqx_types:username()}) ->
+-spec lookup_client(
+    {clientid, emqx_clientid:grouped_clientid()} | {username, emqx_types:username()}
+) ->
     [channel_info()].
 lookup_client({username, Username}) ->
     MatchSpec = [
@@ -701,7 +703,7 @@ update_stats({Tab, Stat, MaxStat}) ->
         Size -> emqx_stats:setstat(Stat, MaxStat, Size)
     end.
 
--spec do_get_chann_conn_mod(emqx_types:clientid(), chan_pid()) ->
+-spec do_get_chann_conn_mod(emqx_clientid:grouped_clientid(), chan_pid()) ->
     module() | undefined.
 do_get_chann_conn_mod(ClientId, ChanPid) ->
     Chan = {ClientId, ChanPid},

@@ -268,14 +268,16 @@ reason(_) -> internal_error.
 
 on_client_subscribed(
     _ClientInfo = #{
-        clientid := ClientId,
+        clientid := GroupedClientId,
         username := Username,
         protocol := Protocol
     },
     Topic,
     SubOpts
 ) ->
+    {Tenant, ClientId} = emqx_clientid:uncomp(GroupedClientId),
     Payload = #{
+        tenant => Tenant,
         clientid => ClientId,
         username => Username,
         protocol => Protocol,
@@ -287,14 +289,16 @@ on_client_subscribed(
 
 on_client_unsubscribed(
     _ClientInfo = #{
-        clientid := ClientId,
+        clientid := GroupedClientId,
         username := Username,
         protocol := Protocol
     },
     Topic,
     _SubOpts
 ) ->
+    {Tenant, ClientId} = emqx_clientid:uncomp(GroupedClientId),
     Payload = #{
+        tenant => Tenant,
         clientid => ClientId,
         username => Username,
         protocol => Protocol,
@@ -371,7 +375,7 @@ safe_publish(Topic, Flags, Payload) ->
 
 common_infos(
     _ClientInfo = #{
-        clientid := ClientId,
+        clientid := GroupedClientId,
         username := Username,
         peerhost := PeerHost,
         sockport := SockPort,
@@ -383,7 +387,9 @@ common_infos(
         connected_at := ConnectedAt
     }
 ) ->
+    {Tenant, ClientId} = emqx_clientid:parse(GroupedClientId),
     #{
+        tenant => Tenant,
         clientid => ClientId,
         username => Username,
         ipaddress => ntoa(PeerHost),
@@ -399,18 +405,23 @@ ntoa(undefined) -> undefined;
 ntoa({IpAddr, Port}) -> iolist_to_binary([inet:ntoa(IpAddr), ":", integer_to_list(Port)]);
 ntoa(IpAddr) -> iolist_to_binary(inet:ntoa(IpAddr)).
 
-event_topic(Event, #{clientid := ClientId, protocol := mqtt}) ->
+event_topic(Event, #{tenant := Tenant, clientid := ClientId, protocol := mqtt}) ->
     iolist_to_binary(
-        [systop("clients"), "/", ClientId, "/", atom_to_binary(Event)]
+        [
+            systop("clients"),
+            composed_clientid_field(Tenant, ClientId),
+            "/",
+            atom_to_binary(Event)
+        ]
     );
-event_topic(Event, #{clientid := ClientId, protocol := GwName}) ->
+event_topic(Event, #{tenant := Tenant, clientid := ClientId, protocol := GwName}) ->
     iolist_to_binary(
         [
             systop("gateway"),
             "/",
             bin(GwName),
             "/clients/",
-            ClientId,
+            composed_clientid_field(Tenant, ClientId),
             "/",
             bin(Event)
         ]
@@ -418,3 +429,8 @@ event_topic(Event, #{clientid := ClientId, protocol := GwName}) ->
 
 bin(A) when is_atom(A) -> atom_to_binary(A);
 bin(B) when is_binary(B) -> B.
+
+composed_clientid_field(undefined, ClientId) ->
+    composed_clientid_field(<<"default">>, ClientId);
+composed_clientid_field(Tenant, ClientId) ->
+    ["/", Tenant, "/", ClientId].

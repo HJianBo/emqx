@@ -107,7 +107,7 @@
 
 -record(session, {
     %% Client's id
-    clientid :: emqx_types:clientid(),
+    clientid :: emqx_clientid:grouped_clientid(),
     id :: sessionID(),
     %% Is this session a persistent session i.e. was it started with Session-Expiry > 0
     is_persistent :: boolean(),
@@ -191,7 +191,7 @@
     max_inflight => integer(),
     mqueue => emqx_mqueue:options(),
     is_persistent => boolean(),
-    clientid => emqx_types:clientid()
+    clientid => emqx_clientid:grouped_clientid()
 }.
 
 %%--------------------------------------------------------------------

@@ -38,7 +38,7 @@
     sockstate/0,
     conninfo/0,
     clientinfo/0,
-    clientid/0,
+    tenant/0,
     username/0,
     password/0,
     peerhost/0,
@@ -134,7 +134,7 @@
     proto_name => binary(),
     proto_ver => proto_ver(),
     clean_start => boolean(),
-    clientid => clientid(),
+    clientid => emqx_clientid:clientid(),
     username => username(),
     conn_props => properties(),
     connected => boolean(),
@@ -147,11 +147,10 @@
 }.
 -type clientinfo() :: #{
     zone := maybe(zone()),
-    tenant := tenant(),
     protocol := protocol(),
     peerhost := peerhost(),
     sockport := non_neg_integer(),
-    clientid := clientid(),
+    clientid := emqx_clientid:grouped_clientid(),
     username := username(),
     is_bridge := boolean(),
     is_superuser := boolean(),
@@ -165,7 +164,6 @@
     atom() => term()
 }.
 -type tenant() :: maybe(binary()).
--type clientid() :: binary() | atom().
 -type username() :: maybe(binary()).
 -type password() :: maybe(binary()).
 -type peerhost() :: inet:ip_address().

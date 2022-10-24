@@ -42,7 +42,7 @@
 
 -record(exclusive_subscription, {
     topic :: emqx_types:topic(),
-    clientid :: emqx_types:clientid()
+    clientid :: emqx_clientid:grouped_clientid()
 }).
 
 -define(TAB, emqx_exclusive_subscription).
