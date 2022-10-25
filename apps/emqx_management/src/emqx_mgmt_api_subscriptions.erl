@@ -134,6 +134,9 @@ parameters() ->
         }
     ].
 
+%% TODO: Tennat support
+%% 1. only list tenant's subs
+%% 2. remove the mountpoint prefix
 subscriptions(get, #{query_string := QString}) ->
     Response =
         case maps:get(<<"node">>, QString, undefined) of
@@ -171,7 +174,7 @@ format({_Subscriber, Topic, Options}) ->
     maps:merge(
         #{
             topic => get_topic(Topic, Options),
-            clientid => maps:get(subid, Options),
+            clientid => subid_to_clientid(maps:get(subid, Options)),
             node => node()
         },
         maps:with([qos, nl, rap, rh], Options)
@@ -183,6 +186,9 @@ get_topic(Topic, #{share := Group}) ->
     filename:join([<<"$share">>, Group, Topic]);
 get_topic(Topic, _) ->
     Topic.
+
+subid_to_clientid(SubId) when is_tuple(SubId) ->
+    emqx_clientid:uncomp(SubId).
 
 %%--------------------------------------------------------------------
 %% Query Function

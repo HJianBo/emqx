@@ -571,6 +571,10 @@ fields(unsubscribe) ->
 
 %%%==============================================================================================
 %% parameters trans
+
+%% TODO: Tenant support
+%% 1. only list tenant's clients
+%% 2. ...
 clients(get, #{query_string := QString}) ->
     list_clients(QString).
 
