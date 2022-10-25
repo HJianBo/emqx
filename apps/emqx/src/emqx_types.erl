@@ -147,6 +147,7 @@
 }.
 -type clientinfo() :: #{
     zone := maybe(zone()),
+    tenant := tenant(),
     protocol := protocol(),
     peerhost := peerhost(),
     sockport := non_neg_integer(),

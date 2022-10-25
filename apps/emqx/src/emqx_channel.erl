@@ -344,7 +344,6 @@ handle_in(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
                 fun run_conn_hooks/2,
                 fun check_connect/2,
                 fun enrich_client/2,
-                fun grouping_clientid/2,
                 fun set_log_meta/2,
                 fun check_banned/2,
                 fun count_flapping_event/2
@@ -1557,31 +1556,18 @@ check_connect(ConnPkt, #channel{clientinfo = #{zone := Zone}}) ->
 %%--------------------------------------------------------------------
 %% Grouping Client ID
 
-grouping_clientid(
-    ConnPkt,
-    Channel = #channel{
-        conninfo = ConnInfo,
-        clientinfo = ClientInfo
-    }
-) ->
-    NClientInfo = ClientInfo#{
-        clientid => emqx_clientid:comp(
-            maps:get(peersni, ConnInfo, undefined),
-            maps:get(clientid, ClientInfo)
-        )
-    },
-    {ok, ConnPkt, Channel#channel{clientinfo = NClientInfo}}.
-
 %%--------------------------------------------------------------------
 %% Enrich Client Info
 
-enrich_client(ConnPkt, Channel = #channel{clientinfo = ClientInfo}) ->
+enrich_client(ConnPkt, Channel = #channel{conninfo = ConnInfo, clientinfo = ClientInfo0}) ->
+    ClientInfo = set_tenant(ConnPkt, ConnInfo, ClientInfo0),
     Pipe = pipeline(
         [
             fun set_username/2,
             fun set_bridge_mode/2,
             fun maybe_username_as_clientid/2,
             fun maybe_assign_clientid/2,
+            fun compose_clientid/2,
             fun fix_mountpoint/2
         ],
         ConnPkt,
@@ -1593,6 +1579,9 @@ enrich_client(ConnPkt, Channel = #channel{clientinfo = ClientInfo}) ->
         {error, ReasonCode, NClientInfo} ->
             {error, ReasonCode, Channel#channel{clientinfo = NClientInfo}}
     end.
+
+set_tenant(_ConnPkt, ConnInfo, ClientInfo) ->
+    ClientInfo#{tenant => maps:get(peersni, ConnInfo, undefined)}.
 
 set_username(
     #mqtt_packet_connect{username = Username},
@@ -1631,6 +1620,9 @@ maybe_assign_clientid(#mqtt_packet_connect{clientid = <<>>}, ClientInfo) ->
     {ok, ClientInfo#{clientid => emqx_guid:to_base62(emqx_guid:gen())}};
 maybe_assign_clientid(#mqtt_packet_connect{clientid = ClientId}, ClientInfo) ->
     {ok, ClientInfo#{clientid => ClientId}}.
+
+compose_clientid(_ConnPkt, ClientInfo = #{tenant := Tenant, clientid := ClientId}) ->
+    {ok, ClientInfo#{clientid => emqx_clientid:comp(Tenant, ClientId)}}.
 
 fix_mountpoint(_ConnPkt, #{mountpoint := undefined}) ->
     ok;
