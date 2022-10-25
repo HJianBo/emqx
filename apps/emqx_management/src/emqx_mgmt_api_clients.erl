@@ -389,6 +389,7 @@ fields(client) ->
                 desc =>
                     <<"Indicate whether the client is using a brand new session">>
             })},
+        {tenant, hoconsc:mk(binary(), #{desc => <<"Tenant ID belongs to">>})},
         {clientid, hoconsc:mk(binary(), #{desc => <<"Client identifier">>})},
         {connected, hoconsc:mk(boolean(), #{desc => <<"Whether the client is connected">>})},
         {connected_at,
@@ -673,7 +674,12 @@ list_clients(QString) ->
     end.
 
 lookup(#{clientid := ClientID}) ->
-    case emqx_mgmt:lookup_client({clientid, ClientID}, ?FORMAT_FUN) of
+    %% FIXME: use real tenant id
+    GroupedClientId = emqx_clientid:comp(
+        undefined,
+        ClientID
+    ),
+    case emqx_mgmt:lookup_client({clientid, GroupedClientId}, ?FORMAT_FUN) of
         [] ->
             {404, ?CLIENT_ID_NOT_FOUND};
         ClientInfo ->
@@ -681,7 +687,12 @@ lookup(#{clientid := ClientID}) ->
     end.
 
 kickout(#{clientid := ClientID}) ->
-    case emqx_mgmt:kickout_client({ClientID, ?FORMAT_FUN}) of
+    %% FIXME: use real tenant id
+    GroupedClientId = emqx_clientid:comp(
+        undefined,
+        ClientID
+    ),
+    case emqx_mgmt:kickout_client({GroupedClientId, ?FORMAT_FUN}) of
         {error, not_found} ->
             {404, ?CLIENT_ID_NOT_FOUND};
         _ ->
@@ -689,7 +700,12 @@ kickout(#{clientid := ClientID}) ->
     end.
 
 get_authz_cache(#{clientid := ClientID}) ->
-    case emqx_mgmt:list_authz_cache(ClientID) of
+    %% FIXME: use real tenant id
+    GroupedClientId = emqx_clientid:comp(
+        undefined,
+        ClientID
+    ),
+    case emqx_mgmt:list_authz_cache(GroupedClientId) of
         {error, not_found} ->
             {404, ?CLIENT_ID_NOT_FOUND};
         {error, Reason} ->
@@ -701,7 +717,12 @@ get_authz_cache(#{clientid := ClientID}) ->
     end.
 
 clean_authz_cache(#{clientid := ClientID}) ->
-    case emqx_mgmt:clean_authz_cache(ClientID) of
+    %% FIXME: use real tenant id
+    GroupedClientId = emqx_clientid:comp(
+        undefined,
+        ClientID
+    ),
+    case emqx_mgmt:clean_authz_cache(GroupedClientId) of
         ok ->
             {204};
         {error, not_found} ->
@@ -713,7 +734,12 @@ clean_authz_cache(#{clientid := ClientID}) ->
 
 subscribe(#{clientid := ClientID, topic := Topic} = Sub) ->
     Opts = maps:with([qos, nl, rap, rh], Sub),
-    case do_subscribe(ClientID, Topic, Opts) of
+    %% FIXME: use real tenant id
+    GroupedClientId = emqx_clientid:comp(
+        undefined,
+        ClientID
+    ),
+    case do_subscribe(GroupedClientId, Topic, Opts) of
         {error, channel_not_found} ->
             {404, ?CLIENT_ID_NOT_FOUND};
         {error, Reason} ->
@@ -724,6 +750,7 @@ subscribe(#{clientid := ClientID, topic := Topic} = Sub) ->
     end.
 
 subscribe_batch(#{clientid := ClientID, topics := Topics}) ->
+    %% FIXME:
     case lookup(#{clientid => ClientID}) of
         {200, _} ->
             ArgList = [
@@ -736,6 +763,7 @@ subscribe_batch(#{clientid := ClientID, topics := Topics}) ->
     end.
 
 unsubscribe(#{clientid := ClientID, topic := Topic}) ->
+    %% FIXME:
     case do_unsubscribe(ClientID, Topic) of
         {error, channel_not_found} ->
             {404, ?CLIENT_ID_NOT_FOUND};
@@ -744,6 +772,7 @@ unsubscribe(#{clientid := ClientID, topic := Topic}) ->
     end.
 
 unsubscribe_batch(#{clientid := ClientID, topics := Topics}) ->
+    %% FIXME:
     case lookup(#{clientid => ClientID}) of
         {200, _} ->
             _ = emqx_mgmt:unsubscribe_batch(ClientID, Topics),
@@ -896,7 +925,8 @@ format_channel_info({_, ClientInfo0, ClientStats}) ->
     ClientInfoMap2 = maps:put(node, Node, ClientInfoMap1),
     ClientInfoMap3 = maps:put(ip_address, IpAddress, ClientInfoMap2),
     ClientInfoMap4 = maps:put(port, Port, ClientInfoMap3),
-    ClientInfoMap = maps:put(connected, Connected, ClientInfoMap4),
+    ClientInfoMap5 = maps:put(connected, Connected, ClientInfoMap4),
+    ClientInfoMap = uncompound_clientid(ClientInfoMap5),
 
     RemoveList =
         [
@@ -959,6 +989,13 @@ result_format_undefined_to_null(Map) ->
         end,
         Map
     ).
+
+uncompound_clientid(ClientInfoMap = #{clientid := GroupedClientId}) ->
+    {Tenant, ClientID} = emqx_clientid:parse(GroupedClientId),
+    ClientInfoMap#{
+        tenant => Tenant,
+        clientid => ClientID
+    }.
 
 -spec peername_dispart(emqx_types:peername()) -> {binary(), inet:port_number()}.
 peername_dispart({Addr, Port}) ->

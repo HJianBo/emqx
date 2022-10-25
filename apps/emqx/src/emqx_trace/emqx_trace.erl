@@ -68,7 +68,7 @@
 publish(#message{topic = <<"$SYS/", _/binary>>}) ->
     ignore;
 publish(#message{from = From, topic = Topic, payload = Payload}) when
-    is_binary(From); is_atom(From)
+    is_tuple(From)
 ->
     ?TRACE("PUBLISH", "publish_to", #{topic => Topic, payload => Payload}).
 
