@@ -1554,9 +1554,6 @@ check_connect(ConnPkt, #channel{clientinfo = #{zone := Zone}}) ->
     emqx_packet:check(ConnPkt, emqx_mqtt_caps:get_caps(Zone)).
 
 %%--------------------------------------------------------------------
-%% Grouping Client ID
-
-%%--------------------------------------------------------------------
 %% Enrich Client Info
 
 enrich_client(ConnPkt, Channel = #channel{conninfo = ConnInfo, clientinfo = ClientInfo0}) ->
