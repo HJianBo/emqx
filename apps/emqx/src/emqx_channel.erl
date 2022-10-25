@@ -259,11 +259,12 @@ init(
         Peercert,
         #{
             zone => Zone,
+            tenant => undefined,
             listener => ListenerId,
             protocol => Protocol,
             peerhost => PeerHost,
             sockport => SockPort,
-            clientid => undefined,
+            clientid => emqx_clientid:comp(undefined, undefined),
             username => undefined,
             mountpoint => MountPoint,
             is_bridge => false,
@@ -310,7 +311,12 @@ set_peercert_infos(Peercert, ClientInfo, Zone) ->
     end,
     Username = PeercetAs(peer_cert_as_username),
     ClientId = PeercetAs(peer_cert_as_clientid),
-    ClientInfo#{username => Username, clientid => ClientId, dn => DN, cn => CN}.
+    ClientInfo#{
+        username => Username,
+        clientid => emqx_clientid:comp(undefined, ClientId),
+        dn => DN,
+        cn => CN
+    }.
 
 take_ws_cookie(ClientInfo, ConnInfo) ->
     case maps:take(ws_cookie, ConnInfo) of
@@ -1564,7 +1570,6 @@ enrich_client(ConnPkt, Channel = #channel{conninfo = ConnInfo, clientinfo = Clie
             fun set_bridge_mode/2,
             fun maybe_username_as_clientid/2,
             fun maybe_assign_clientid/2,
-            fun compose_clientid/2,
             fun fix_mountpoint/2
         ],
         ConnPkt,
@@ -1577,8 +1582,12 @@ enrich_client(ConnPkt, Channel = #channel{conninfo = ConnInfo, clientinfo = Clie
             {error, ReasonCode, Channel#channel{clientinfo = NClientInfo}}
     end.
 
-set_tenant(_ConnPkt, ConnInfo, ClientInfo) ->
-    ClientInfo#{tenant => maps:get(peersni, ConnInfo, undefined)}.
+set_tenant(_ConnPkt, ConnInfo, ClientInfo = #{clientid := GroupedClientId}) ->
+    Tenant = maps:get(peersni, ConnInfo, undefined),
+    ClientInfo#{
+        tenant => Tenant,
+        clientid => emqx_clientid:update_tenant(Tenant, GroupedClientId)
+    }.
 
 set_username(
     #mqtt_packet_connect{username = Username},
@@ -1599,27 +1608,35 @@ maybe_username_as_clientid(
     _ConnPkt,
     ClientInfo = #{
         zone := Zone,
-        username := Username
+        username := Username,
+        clientid := GroupedClientId
     }
 ) ->
     case get_mqtt_conf(Zone, use_username_as_clientid) of
-        true when Username =/= <<>> -> {ok, ClientInfo#{clientid => Username}};
-        true -> {error, ?RC_CLIENT_IDENTIFIER_NOT_VALID, ClientInfo};
-        false -> ok
+        true when Username =/= <<>> ->
+            {ok, ClientInfo#{clientid => emqx_clientid:update_clientid(Username, GroupedClientId)}};
+        true ->
+            {error, ?RC_CLIENT_IDENTIFIER_NOT_VALID, ClientInfo};
+        false ->
+            ok
     end.
 
-maybe_assign_clientid(_ConnPkt, ClientInfo = #{clientid := ClientId}) when
-    ClientId /= undefined
-->
-    {ok, ClientInfo};
-maybe_assign_clientid(#mqtt_packet_connect{clientid = <<>>}, ClientInfo) ->
-    %% Generate a rand clientId
-    {ok, ClientInfo#{clientid => emqx_guid:to_base62(emqx_guid:gen())}};
-maybe_assign_clientid(#mqtt_packet_connect{clientid = ClientId}, ClientInfo) ->
-    {ok, ClientInfo#{clientid => ClientId}}.
-
-compose_clientid(_ConnPkt, ClientInfo = #{tenant := Tenant, clientid := ClientId}) ->
-    {ok, ClientInfo#{clientid => emqx_clientid:comp(Tenant, ClientId)}}.
+maybe_assign_clientid(
+    #mqtt_packet_connect{clientid = RawClientId0},
+    ClientInfo = #{clientid := GroupedClientId}
+) ->
+    case emqx_clientid:is_undefined_clientid(GroupedClientId) of
+        false ->
+            {ok, ClientInfo};
+        true ->
+            RawClientId =
+                case RawClientId0 of
+                    <<>> -> emqx_guid:to_base62(emqx_guid:gen());
+                    Val -> Val
+                end,
+            NClientId = emqx_clientid:update_clientid(RawClientId, GroupedClientId),
+            {ok, ClientInfo#{clientid => NClientId}}
+    end.
 
 fix_mountpoint(_ConnPkt, #{mountpoint := undefined}) ->
     ok;
