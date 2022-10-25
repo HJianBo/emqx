@@ -17,6 +17,7 @@
 -module(emqx_clientid).
 
 -export([comp/2, uncomp/1, parse/1]).
+-export([update_tenant/2, update_clientid/2, is_undefined_clientid/1]).
 
 -type clientid() :: binary() | atom().
 
@@ -39,3 +40,16 @@ parse({Tenant, ClientId}) ->
     {Tenant, ClientId};
 parse(_) ->
     error(badarg).
+
+-spec update_tenant(emqx_types:tenant(), grouped_clientid()) -> grouped_clientid().
+update_tenant(Tenant, _GroupedClientId = {_, ClientId}) ->
+    {Tenant, ClientId}.
+
+-spec update_clientid(emqx_types:tenant(), grouped_clientid()) -> grouped_clientid().
+update_clientid(ClientId, _GroupedClientId = {Tenant, _}) ->
+    {Tenant, ClientId}.
+
+-spec is_undefined_clientid(grouped_clientid()) -> boolean().
+is_undefined_clientid({_, undefined}) -> true;
+is_undefined_clientid({_, _}) -> false;
+is_undefined_clientid(_) -> error(badarg).
