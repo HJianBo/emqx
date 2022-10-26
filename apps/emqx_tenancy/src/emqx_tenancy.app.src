@@ -1,0 +1,15 @@
+{application, emqx_tenancy, [
+    {description, "Multi-Tenancy for EMQX"},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {mod, {emqx_tenancy_app, []}},
+    {applications, [
+        kernel,
+        stdlib
+    ]},
+    {env, []},
+    {modules, []},
+
+    {licenses, ["Apache 2.0"]},
+    {links, []}
+]}.
