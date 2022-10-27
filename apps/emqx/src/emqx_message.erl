@@ -83,7 +83,7 @@
 -type message_map() :: #{
     id := binary(),
     qos := 0 | 1 | 2,
-    from := atom() | binary(),
+    from := emqx_clientid:grouped_clientid(),
     flags := emqx_types:flags(),
     headers := emqx_types:headers(),
     topic := emqx_types:topic(),
@@ -96,7 +96,7 @@
 
 -spec make(emqx_types:topic(), emqx_types:payload()) -> emqx_types:message().
 make(Topic, Payload) ->
-    make(undefined, Topic, Payload).
+    make(emqx_clientid:comp(undefined, undefined), Topic, Payload).
 
 -spec make(
     emqx_clientid:grouped_clientid(),
@@ -194,7 +194,7 @@ id(#message{id = Id}) -> Id.
 -spec qos(emqx_types:message()) -> emqx_types:qos().
 qos(#message{qos = QoS}) -> QoS.
 
--spec from(emqx_types:message()) -> atom() | binary().
+-spec from(emqx_types:message()) -> emqx_clientid:grouped_clientid().
 from(#message{from = From}) -> From.
 
 -spec topic(emqx_types:message()) -> emqx_types:topic().

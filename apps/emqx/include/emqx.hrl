@@ -69,7 +69,7 @@
     %% Message QoS
     qos = 0,
     %% Message from
-    from :: atom() | binary(),
+    from :: emqx_clientid:grouped_clientid(),
     %% Message flags
     flags = #{} :: emqx_types:flags(),
     %% Message headers. May contain any metadata. e.g. the
@@ -121,7 +121,7 @@
 
 -record(banned, {
     who ::
-        {clientid, binary()}
+        {clientid, emqx_clientid:grouped_clientid()}
         | {peerhost, inet:ip_address()}
         | {username, binary()},
     by :: binary(),

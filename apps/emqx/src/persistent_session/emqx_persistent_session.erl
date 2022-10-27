@@ -223,7 +223,7 @@ lookup(ClientID) ->
             end
     end.
 
--spec discard_if_present(binary()) -> 'ok'.
+-spec discard_if_present(emqx_clientid:grouped_clientid()) -> 'ok'.
 discard_if_present(ClientID) ->
     case lookup(ClientID) of
         none ->
@@ -233,7 +233,7 @@ discard_if_present(ClientID) ->
             ok
     end.
 
--spec discard(binary(), emgx_session:session()) -> emgx_session:session().
+-spec discard(emqx_clientid:grouped_clientid(), emgx_session:session()) -> emgx_session:session().
 discard(ClientID, Session) ->
     discard_opt(is_store_enabled(), ClientID, Session).
 

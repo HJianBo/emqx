@@ -264,7 +264,7 @@ init(
             protocol => Protocol,
             peerhost => PeerHost,
             sockport => SockPort,
-            clientid => emqx_clientid:comp(undefined, undefined),
+            clientid => undefined,
             username => undefined,
             mountpoint => MountPoint,
             is_bridge => false,
@@ -313,7 +313,7 @@ set_peercert_infos(Peercert, ClientInfo, Zone) ->
     ClientId = PeercetAs(peer_cert_as_clientid),
     ClientInfo#{
         username => Username,
-        clientid => emqx_clientid:comp(undefined, ClientId),
+        clientid => ClientId,
         dn => DN,
         cn => CN
     }.
@@ -1582,11 +1582,11 @@ enrich_client(ConnPkt, Channel = #channel{conninfo = ConnInfo, clientinfo = Clie
             {error, ReasonCode, Channel#channel{clientinfo = NClientInfo}}
     end.
 
-set_tenant(_ConnPkt, ConnInfo, ClientInfo = #{clientid := GroupedClientId}) ->
+set_tenant(_ConnPkt, ConnInfo, ClientInfo = #{clientid := ClientId}) ->
     Tenant = maps:get(peersni, ConnInfo, undefined),
     ClientInfo#{
         tenant => Tenant,
-        clientid => emqx_clientid:update_tenant(Tenant, GroupedClientId)
+        clientid => emqx_clientid:update_tenant(Tenant, ClientId)
     }.
 
 set_username(

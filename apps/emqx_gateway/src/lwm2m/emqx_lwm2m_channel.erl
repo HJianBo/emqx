@@ -133,6 +133,7 @@ init(
         Peercert,
         #{
             zone => default,
+            tenant => undefined,
             listener => ListenerId,
             protocol => lwm2m,
             peerhost => PeerHost,
