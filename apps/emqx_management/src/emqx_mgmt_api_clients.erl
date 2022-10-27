@@ -674,7 +674,7 @@ list_clients(QString) ->
     end.
 
 lookup(#{clientid := ClientID}) ->
-    %% FIXME: use real tenant id
+    %% TODO: use real tenant id
     GroupedClientId = emqx_clientid:comp(
         undefined,
         ClientID
@@ -687,7 +687,7 @@ lookup(#{clientid := ClientID}) ->
     end.
 
 kickout(#{clientid := ClientID}) ->
-    %% FIXME: use real tenant id
+    %% TODO: use real tenant id
     GroupedClientId = emqx_clientid:comp(
         undefined,
         ClientID
@@ -700,7 +700,7 @@ kickout(#{clientid := ClientID}) ->
     end.
 
 get_authz_cache(#{clientid := ClientID}) ->
-    %% FIXME: use real tenant id
+    %% TODO: use real tenant id
     GroupedClientId = emqx_clientid:comp(
         undefined,
         ClientID
@@ -717,7 +717,7 @@ get_authz_cache(#{clientid := ClientID}) ->
     end.
 
 clean_authz_cache(#{clientid := ClientID}) ->
-    %% FIXME: use real tenant id
+    %% TODO: use real tenant id
     GroupedClientId = emqx_clientid:comp(
         undefined,
         ClientID
@@ -734,7 +734,7 @@ clean_authz_cache(#{clientid := ClientID}) ->
 
 subscribe(#{clientid := ClientID, topic := Topic} = Sub) ->
     Opts = maps:with([qos, nl, rap, rh], Sub),
-    %% FIXME: use real tenant id
+    %% TODO: use real tenant id
     GroupedClientId = emqx_clientid:comp(
         undefined,
         ClientID

@@ -311,12 +311,7 @@ set_peercert_infos(Peercert, ClientInfo, Zone) ->
     end,
     Username = PeercetAs(peer_cert_as_username),
     ClientId = PeercetAs(peer_cert_as_clientid),
-    ClientInfo#{
-        username => Username,
-        clientid => ClientId,
-        dn => DN,
-        cn => CN
-    }.
+    ClientInfo#{username => Username, clientid => ClientId, dn => DN, cn => CN}.
 
 take_ws_cookie(ClientInfo, ConnInfo) ->
     case maps:take(ws_cookie, ConnInfo) of

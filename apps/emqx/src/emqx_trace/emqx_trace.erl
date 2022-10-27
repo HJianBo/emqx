@@ -67,9 +67,7 @@
 
 publish(#message{topic = <<"$SYS/", _/binary>>}) ->
     ignore;
-publish(#message{from = From, topic = Topic, payload = Payload}) when
-    is_tuple(From)
-->
+publish(#message{topic = Topic, payload = Payload}) ->
     ?TRACE("PUBLISH", "publish_to", #{topic => Topic, payload => Payload}).
 
 subscribe(<<"$SYS/", _/binary>>, _SubId, _SubOpts) ->

@@ -259,7 +259,7 @@ safe_publish(Event, WarnMsg) ->
     emqx_broker:safe_publish(sysmon_msg(Topic, iolist_to_binary(WarnMsg))).
 
 sysmon_msg(Topic, Payload) ->
-    Msg = emqx_message:make(emqx_clientid:comp(undefined, ?SYSMON), Topic, Payload),
+    Msg = emqx_message:make(?SYSMON, Topic, Payload),
     emqx_message:set_flag(sys, Msg).
 
 init_system_monitor() ->

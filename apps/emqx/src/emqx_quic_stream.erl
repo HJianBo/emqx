@@ -29,7 +29,8 @@
     getopts/2,
     peername/1,
     sockname/1,
-    peercert/1
+    peercert/1,
+    peer_sni/1
 ]).
 
 wait({ConnOwner, Conn}) ->
@@ -55,6 +56,10 @@ sockname({quic, Conn, _Stream}) ->
 peercert(_S) ->
     %% @todo but unsupported by msquic
     nossl.
+
+peer_sni(_) ->
+    %% @todo
+    undefined.
 
 getstat({quic, Conn, _Stream}, Stats) ->
     case quicer:getstat(Conn, Stats) of

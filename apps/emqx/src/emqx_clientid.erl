@@ -28,7 +28,7 @@
 
 -define(IS_NORMAL_ID(I), (is_atom(I) orelse is_binary(I))).
 
--define(IS_TENANT(I), (I == undefined orelse is_binary(I))).
+-define(IS_TENANT(I), is_binary(I)).
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -37,6 +37,8 @@
 -spec comp(emqx_types:tenant(), clientid()) -> grouped_clientid().
 comp(Tenant, ClientId) when ?IS_TENANT(Tenant), ?IS_NORMAL_ID(ClientId) ->
     {Tenant, ClientId};
+comp(undefined, ClientId) when ?IS_NORMAL_ID(ClientId) ->
+    ClientId;
 comp(_, _) ->
     error(badarg).
 
@@ -52,11 +54,15 @@ uncomp(_) ->
 parse({Tenant, ClientId}) ->
     {Tenant, ClientId};
 parse(ClientId) when ?IS_NORMAL_ID(ClientId) ->
-    ClientId;
+    {undefined, ClientId};
 parse(_) ->
     error(badarg).
 
 -spec update_tenant(emqx_types:tenant(), grouped_clientid()) -> grouped_clientid().
+update_tenant(undefined, ClientId) when ?IS_NORMAL_ID(ClientId) ->
+    ClientId;
+update_tenant(undefined, {_, ClientId}) ->
+    ClientId;
 update_tenant(Tenant, _GroupedClientId = {_, ClientId}) ->
     {Tenant, ClientId};
 update_tenant(Tenant, ClientId) when ?IS_NORMAL_ID(ClientId) ->
@@ -65,10 +71,10 @@ update_tenant(_, _) ->
     error(badrag).
 
 -spec update_clientid(emqx_types:tenant(), grouped_clientid()) -> grouped_clientid().
-update_clientid(ClientId, _GroupedClientId = {Tenant, _}) ->
-    {Tenant, ClientId};
-update_clientid(ClientId, ClientId) when ?IS_NORMAL_ID(ClientId) ->
-    ClientId;
+update_clientid(Id, _GroupedClientId = {Tenant, _}) ->
+    {Tenant, Id};
+update_clientid(Id, ClientId) when ?IS_NORMAL_ID(ClientId) ->
+    Id;
 update_clientid(_, _) ->
     error(badrag).
 
@@ -76,7 +82,7 @@ update_clientid(_, _) ->
 is_undefined_clientid(undefined) -> true;
 is_undefined_clientid({_, undefined}) -> true;
 is_undefined_clientid({_, _}) -> false;
-is_undefined_clientid(I) when is_binary(I) -> true;
+is_undefined_clientid(I) when is_binary(I) -> false;
 is_undefined_clientid(_) -> error(badarg).
 
 %%--------------------------------------------------------------------

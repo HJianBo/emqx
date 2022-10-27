@@ -369,7 +369,7 @@ safe_publish(Topic, Flags, Payload) ->
     emqx_broker:safe_publish(
         emqx_message:set_flags(
             maps:merge(#{sys => true}, Flags),
-            emqx_message:make(emqx_clientid:comp(undefined, ?SYS), Topic, iolist_to_binary(Payload))
+            emqx_message:make(?SYS, Topic, iolist_to_binary(Payload))
         )
     ).
 
