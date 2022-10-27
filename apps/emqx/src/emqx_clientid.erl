@@ -17,20 +17,33 @@
 -module(emqx_clientid).
 
 -export([comp/2, uncomp/1, parse/1]).
+
 -export([update_tenant/2, update_clientid/2, is_undefined_clientid/1]).
 
 -type clientid() :: binary() | atom().
 
--type grouped_clientid() :: {emqx_types:tenant(), clientid()}.
+-type grouped_clientid() :: {emqx_types:tenant(), clientid()} | clientid().
 
 -export_type([clientid/0, grouped_clientid/0]).
 
+-define(IS_NORMAL_ID(I), (is_atom(I) orelse is_binary(I))).
+
+-define(IS_TENANT(I), (I == undefined orelse is_binary(I))).
+
+%%--------------------------------------------------------------------
+%% APIs
+%%--------------------------------------------------------------------
+
 -spec comp(emqx_types:tenant(), clientid()) -> grouped_clientid().
-comp(Tenant, ClientId) ->
-    {Tenant, ClientId}.
+comp(Tenant, ClientId) when ?IS_TENANT(Tenant), ?IS_NORMAL_ID(ClientId) ->
+    {Tenant, ClientId};
+comp(_, _) ->
+    error(badarg).
 
 -spec uncomp(grouped_clientid()) -> clientid().
 uncomp({_, ClientId}) ->
+    ClientId;
+uncomp(ClientId) when ?IS_NORMAL_ID(ClientId) ->
     ClientId;
 uncomp(_) ->
     error(badarg).
@@ -38,18 +51,45 @@ uncomp(_) ->
 -spec parse(grouped_clientid()) -> {emqx_types:tenant(), clientid()}.
 parse({Tenant, ClientId}) ->
     {Tenant, ClientId};
+parse(ClientId) when ?IS_NORMAL_ID(ClientId) ->
+    ClientId;
 parse(_) ->
     error(badarg).
 
 -spec update_tenant(emqx_types:tenant(), grouped_clientid()) -> grouped_clientid().
 update_tenant(Tenant, _GroupedClientId = {_, ClientId}) ->
-    {Tenant, ClientId}.
+    {Tenant, ClientId};
+update_tenant(Tenant, ClientId) when ?IS_NORMAL_ID(ClientId) ->
+    {Tenant, ClientId};
+update_tenant(_, _) ->
+    error(badrag).
 
 -spec update_clientid(emqx_types:tenant(), grouped_clientid()) -> grouped_clientid().
 update_clientid(ClientId, _GroupedClientId = {Tenant, _}) ->
-    {Tenant, ClientId}.
+    {Tenant, ClientId};
+update_clientid(ClientId, ClientId) when ?IS_NORMAL_ID(ClientId) ->
+    ClientId;
+update_clientid(_, _) ->
+    error(badrag).
 
 -spec is_undefined_clientid(grouped_clientid()) -> boolean().
+is_undefined_clientid(undefined) -> true;
 is_undefined_clientid({_, undefined}) -> true;
 is_undefined_clientid({_, _}) -> false;
+is_undefined_clientid(I) when is_binary(I) -> true;
 is_undefined_clientid(_) -> error(badarg).
+
+%%--------------------------------------------------------------------
+%% eunits
+%%--------------------------------------------------------------------
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+comp_uncomp_test() ->
+    ?assertEqual(
+        {<<"test_tenant">>, <<"client1">>},
+        comp(<<"test_tenant">>, <<"client1">>)
+    ).
+
+-endif.

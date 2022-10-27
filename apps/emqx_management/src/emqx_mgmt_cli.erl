@@ -172,6 +172,7 @@ clients(["list"]) ->
 clients(["show", ClientId]) ->
     if_client(ClientId, fun print/1);
 clients(["kick", ClientId]) ->
+    %% TODO: tenant id
     ok = emqx_cm:kick_session(bin(ClientId)),
     emqx_ctl:print("ok~n");
 clients(_) ->

@@ -275,7 +275,7 @@ on_client_subscribed(
     Topic,
     SubOpts
 ) ->
-    {Tenant, ClientId} = emqx_clientid:uncomp(GroupedClientId),
+    {Tenant, ClientId} = emqx_clientid:parse(GroupedClientId),
     Payload = #{
         tenant => Tenant,
         clientid => ClientId,
@@ -296,7 +296,7 @@ on_client_unsubscribed(
     Topic,
     _SubOpts
 ) ->
-    {Tenant, ClientId} = emqx_clientid:uncomp(GroupedClientId),
+    {Tenant, ClientId} = emqx_clientid:parse(GroupedClientId),
     Payload = #{
         tenant => Tenant,
         clientid => ClientId,
@@ -369,7 +369,7 @@ safe_publish(Topic, Flags, Payload) ->
     emqx_broker:safe_publish(
         emqx_message:set_flags(
             maps:merge(#{sys => true}, Flags),
-            emqx_message:make(?SYS, Topic, iolist_to_binary(Payload))
+            emqx_message:make(emqx_clientid:comp(undefined, ?SYS), Topic, iolist_to_binary(Payload))
         )
     ).
 

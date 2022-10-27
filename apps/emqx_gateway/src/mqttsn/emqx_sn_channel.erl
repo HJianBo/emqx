@@ -161,6 +161,7 @@ init(
         Peercert,
         #{
             zone => default,
+            tenant => undefined,
             listener => ListenerId,
             protocol => 'mqtt-sn',
             peerhost => PeerHost,

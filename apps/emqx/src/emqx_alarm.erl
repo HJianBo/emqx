@@ -420,7 +420,7 @@ do_actions(Operation, Alarm, [publish | More]) ->
     Topic = topic(Operation),
     {ok, Payload} = emqx_json:safe_encode(normalize(Alarm)),
     Message = emqx_message:make(
-        ?MODULE,
+        emqx_clientid:comp(undefined, ?MODULE),
         0,
         Topic,
         Payload,
