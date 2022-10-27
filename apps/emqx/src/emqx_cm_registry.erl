@@ -74,26 +74,26 @@ is_enabled() ->
     emqx_clientid:grouped_clientid()
     | {emqx_clientid:grouped_clientid(), pid()}
 ) -> ok.
-register_channel({ClientId, ChanPid}) when is_tuple(ClientId), is_pid(ChanPid) ->
+register_channel(ClientId) when is_binary(ClientId) ->
+    register_channel({ClientId, self()});
+register_channel({ClientId, ChanPid}) when is_pid(ChanPid) ->
     case is_enabled() of
         true -> mria:dirty_write(?TAB, record(ClientId, ChanPid));
         false -> ok
-    end;
-register_channel(ClientId) when is_tuple(ClientId) ->
-    register_channel({ClientId, self()}).
+    end.
 
 %% @doc Unregister a global channel.
 -spec unregister_channel(
     emqx_clientid:grouped_clientid()
     | {emqx_clientid:grouped_clientid(), pid()}
 ) -> ok.
-unregister_channel({ClientId, ChanPid}) when is_tuple(ClientId), is_pid(ChanPid) ->
+unregister_channel(ClientId) when is_binary(ClientId) ->
+    unregister_channel({ClientId, self()});
+unregister_channel({ClientId, ChanPid}) when is_pid(ChanPid) ->
     case is_enabled() of
         true -> mria:dirty_delete_object(?TAB, record(ClientId, ChanPid));
         false -> ok
-    end;
-unregister_channel(ClientId) when is_tuple(ClientId) ->
-    unregister_channel({ClientId, self()}).
+    end.
 
 %% @doc Lookup the global channels.
 -spec lookup_channels(emqx_clientid:grouped_clientid()) -> list(pid()).

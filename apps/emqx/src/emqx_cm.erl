@@ -173,7 +173,7 @@ register_channel(ClientId, ChanPid, #{conn_mod := ConnMod}) when is_pid(ChanPid)
 
 %% @doc Unregister a channel.
 -spec unregister_channel(emqx_clientid:grouped_clientid()) -> ok.
-unregister_channel(ClientId) when is_tuple(ClientId) ->
+unregister_channel(ClientId) ->
     true = do_unregister_channel({ClientId, self()}),
     ok.
 
@@ -214,7 +214,7 @@ get_chan_info(ClientId, ChanPid) ->
 
 %% @doc Update infos of the channel.
 -spec set_chan_info(emqx_clientid:grouped_clientid(), emqx_types:attrs()) -> boolean().
-set_chan_info(ClientId, Info) when is_tuple(ClientId) ->
+set_chan_info(ClientId, Info) ->
     Chan = {ClientId, self()},
     try
         ets:update_element(?CHAN_INFO_TAB, Chan, {2, Info})
@@ -244,7 +244,7 @@ get_chan_stats(ClientId, ChanPid) ->
 
 %% @doc Set channel's stats.
 -spec set_chan_stats(emqx_clientid:grouped_clientid(), emqx_types:stats()) -> boolean().
-set_chan_stats(ClientId, Stats) when is_tuple(ClientId) ->
+set_chan_stats(ClientId, Stats) ->
     set_chan_stats(ClientId, self(), Stats).
 
 -spec set_chan_stats(emqx_clientid:grouped_clientid(), chan_pid(), emqx_types:stats()) ->

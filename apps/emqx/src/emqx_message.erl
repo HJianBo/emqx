@@ -96,7 +96,7 @@
 
 -spec make(emqx_types:topic(), emqx_types:payload()) -> emqx_types:message().
 make(Topic, Payload) ->
-    make(emqx_clientid:comp(undefined, undefined), Topic, Payload).
+    make(undefined, Topic, Payload).
 
 -spec make(
     emqx_clientid:grouped_clientid(),
