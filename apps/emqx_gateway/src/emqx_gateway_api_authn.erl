@@ -111,7 +111,7 @@ users(get, #{bindings := #{name := Name0}, query_string := Qs}) ->
             chain_name := ChainName
         }
     ) ->
-        emqx_authn_api:list_users(ChainName, AuthId, parse_qstring(Qs))
+        emqx_authn_api:list_users(ChainName, AuthId, undefined, parse_qstring(Qs))
     end);
 users(post, #{
     bindings := #{name := Name0},
@@ -124,7 +124,7 @@ users(post, #{
             chain_name := ChainName
         }
     ) ->
-        emqx_authn_api:add_user(ChainName, AuthId, Body)
+        emqx_authn_api:add_user(ChainName, AuthId, undefined, Body)
     end).
 
 users_insta(get, #{bindings := #{name := Name0, uid := UserId}}) ->
@@ -135,7 +135,7 @@ users_insta(get, #{bindings := #{name := Name0, uid := UserId}}) ->
             chain_name := ChainName
         }
     ) ->
-        emqx_authn_api:find_user(ChainName, AuthId, UserId)
+        emqx_authn_api:find_user(ChainName, AuthId, undefined, UserId)
     end);
 users_insta(put, #{
     bindings := #{name := Name0, uid := UserId},
@@ -148,7 +148,7 @@ users_insta(put, #{
             chain_name := ChainName
         }
     ) ->
-        emqx_authn_api:update_user(ChainName, AuthId, UserId, Body)
+        emqx_authn_api:update_user(ChainName, AuthId, undefined, UserId, Body)
     end);
 users_insta(delete, #{bindings := #{name := Name0, uid := UserId}}) ->
     with_authn(Name0, fun(
@@ -158,7 +158,7 @@ users_insta(delete, #{bindings := #{name := Name0, uid := UserId}}) ->
             chain_name := ChainName
         }
     ) ->
-        emqx_authn_api:delete_user(ChainName, AuthId, UserId)
+        emqx_authn_api:delete_user(ChainName, AuthId, undefined, UserId)
     end).
 
 %%--------------------------------------------------------------------

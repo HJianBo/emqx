@@ -1,4 +1,5 @@
 # Broken APIs/Interfaces for Users
 
-- Client Online/Offline/Subscribed/Unsubscribed topic name and payload
-- 
+- System Events for client Online/Offline/Subscribed/Unsubscribed topic name and payload
+- Import User only works for admin
+  - The CVS file, or JSON must be contains tenant's id
