@@ -41,11 +41,11 @@
 
 -export([
     import_users/2,
-    add_user/2,
-    delete_user/2,
-    update_user/3,
-    lookup_user/2,
-    list_users/2
+    add_user/3,
+    delete_user/3,
+    update_user/4,
+    lookup_user/3,
+    list_users/3
 ]).
 
 -export([
@@ -57,9 +57,9 @@
 %% Internal exports (RPC)
 -export([
     do_destroy/1,
-    do_add_user/2,
-    do_delete_user/2,
-    do_update_user/3,
+    do_add_user/3,
+    do_delete_user/3,
+    do_update_user/4,
     import/2,
     import_csv/3
 ]).
@@ -68,7 +68,7 @@
 -type user_id() :: binary().
 
 -record(user_info, {
-    user_id :: {user_group(), user_id()},
+    user_id :: {user_group(), emqx_types:tenant(), user_id()},
     password_hash :: binary(),
     salt :: binary(),
     is_superuser :: boolean()
@@ -80,8 +80,11 @@
 
 -define(TAB, ?MODULE).
 -define(AUTHN_QSCHEMA, [
-    {<<"like_user_id">>, binary},
+    %% internal params
     {<<"user_group">>, binary},
+    %% internal params
+    {<<"tenant">>, binary},
+    {<<"like_user_id">>, binary},
     {<<"is_superuser">>, atom}
 ]).
 -define(QUERY_FUN, {?MODULE, query}).
@@ -166,8 +169,9 @@ authenticate(
         password_hash_algorithm := Algorithm
     }
 ) ->
+    Tenant = maps:get(tenant, Credential, undefined),
     UserID = get_user_identity(Credential, Type),
-    case mnesia:dirty_read(?TAB, {UserGroup, UserID}) of
+    case mnesia:dirty_read(?TAB, {UserGroup, Tenant, UserID}) of
         [] ->
             ?TRACE_AUTHN_PROVIDER("user_not_found"),
             ignore;
@@ -209,10 +213,11 @@ import_users({Filename0, FileData}, State) ->
             {error, {unsupported_file_format, Extension}}
     end.
 
-add_user(UserInfo, State) ->
-    trans(fun ?MODULE:do_add_user/2, [UserInfo, State]).
+add_user(Tenant, UserInfo, State) ->
+    trans(fun ?MODULE:do_add_user/3, [Tenant, UserInfo, State]).
 
 do_add_user(
+    Tenant,
     #{
         user_id := UserID,
         password := Password
@@ -222,31 +227,32 @@ do_add_user(
         password_hash_algorithm := Algorithm
     }
 ) ->
-    case mnesia:read(?TAB, {UserGroup, UserID}, write) of
+    case mnesia:read(?TAB, {UserGroup, Tenant, UserID}, write) of
         [] ->
             {PasswordHash, Salt} = emqx_authn_password_hashing:hash(Algorithm, Password),
             IsSuperuser = maps:get(is_superuser, UserInfo, false),
-            insert_user(UserGroup, UserID, PasswordHash, Salt, IsSuperuser),
+            insert_user(UserGroup, Tenant, UserID, PasswordHash, Salt, IsSuperuser),
             {ok, #{user_id => UserID, is_superuser => IsSuperuser}};
         [_] ->
             {error, already_exist}
     end.
 
-delete_user(UserID, State) ->
-    trans(fun ?MODULE:do_delete_user/2, [UserID, State]).
+delete_user(Tenant, UserID, State) ->
+    trans(fun ?MODULE:do_delete_user/3, [Tenant, UserID, State]).
 
-do_delete_user(UserID, #{user_group := UserGroup}) ->
-    case mnesia:read(?TAB, {UserGroup, UserID}, write) of
+do_delete_user(Tenant, UserID, #{user_group := UserGroup}) ->
+    case mnesia:read(?TAB, {UserGroup, Tenant, UserID}, write) of
         [] ->
             {error, not_found};
         [_] ->
-            mnesia:delete(?TAB, {UserGroup, UserID}, write)
+            mnesia:delete(?TAB, {UserGroup, Tenant, UserID}, write)
     end.
 
-update_user(UserID, UserInfo, State) ->
-    trans(fun ?MODULE:do_update_user/3, [UserID, UserInfo, State]).
+update_user(Tenant, UserID, UserInfo, State) ->
+    trans(fun ?MODULE:do_update_user/4, [Tenant, UserID, UserInfo, State]).
 
 do_update_user(
+    Tenant,
     UserID,
     UserInfo,
     #{
@@ -254,7 +260,7 @@ do_update_user(
         password_hash_algorithm := Algorithm
     }
 ) ->
-    case mnesia:read(?TAB, {UserGroup, UserID}, write) of
+    case mnesia:read(?TAB, {UserGroup, Tenant, UserID}, write) of
         [] ->
             {error, not_found};
         [
@@ -274,20 +280,20 @@ do_update_user(
                     #{} ->
                         {PasswordHash, Salt}
                 end,
-            insert_user(UserGroup, UserID, NPasswordHash, NSalt, NSuperuser),
+            insert_user(UserGroup, Tenant, UserID, NPasswordHash, NSalt, NSuperuser),
             {ok, #{user_id => UserID, is_superuser => NSuperuser}}
     end.
 
-lookup_user(UserID, #{user_group := UserGroup}) ->
-    case mnesia:dirty_read(?TAB, {UserGroup, UserID}) of
+lookup_user(Tenant, UserID, #{user_group := UserGroup}) ->
+    case mnesia:dirty_read(?TAB, {UserGroup, Tenant, UserID}) of
         [UserInfo] ->
             {ok, format_user_info(UserInfo)};
         [] ->
             {error, not_found}
     end.
 
-list_users(QueryString, #{user_group := UserGroup}) ->
-    NQueryString = QueryString#{<<"user_group">> => UserGroup},
+list_users(Tenant, QueryString, #{user_group := UserGroup}) ->
+    NQueryString = QueryString#{<<"user_group">> => UserGroup, <<"tenant">> => Tenant},
     emqx_mgmt_api:node_query(node(), NQueryString, ?TAB, ?AUTHN_QSCHEMA, ?QUERY_FUN).
 
 %%--------------------------------------------------------------------
@@ -328,7 +334,7 @@ fuzzy_filter_fun(Fuzzy) ->
 run_fuzzy_filter(_, []) ->
     true;
 run_fuzzy_filter(
-    E = #user_info{user_id = {_, UserID}},
+    E = #user_info{user_id = {_, _, UserID}},
     [{user_id, like, UsernameSubStr} | Fuzzy]
 ) ->
     binary:match(UserID, UsernameSubStr) /= nomatch andalso run_fuzzy_filter(E, Fuzzy).
@@ -359,6 +365,7 @@ import(_UserGroup, []) ->
     ok;
 import(UserGroup, [
     #{
+        <<"tenant">> := Tenant,
         <<"user_id">> := UserID,
         <<"password_hash">> := PasswordHash
     } = UserInfo
@@ -368,7 +375,7 @@ import(UserGroup, [
 ->
     Salt = maps:get(<<"salt">>, UserInfo, <<>>),
     IsSuperuser = maps:get(<<"is_superuser">>, UserInfo, false),
-    insert_user(UserGroup, UserID, PasswordHash, Salt, IsSuperuser),
+    insert_user(UserGroup, Tenant, UserID, PasswordHash, Salt, IsSuperuser),
     import(UserGroup, More);
 import(_UserGroup, [_ | _More]) ->
     {error, bad_format}.
@@ -381,12 +388,13 @@ import_csv(UserGroup, CSV, Seq) ->
             case get_user_info_by_seq(Fields, Seq) of
                 {ok,
                     #{
+                        tenant := Tenant,
                         user_id := UserID,
                         password_hash := PasswordHash
                     } = UserInfo} ->
                     Salt = maps:get(salt, UserInfo, <<>>),
                     IsSuperuser = maps:get(is_superuser, UserInfo, false),
-                    insert_user(UserGroup, UserID, PasswordHash, Salt, IsSuperuser),
+                    insert_user(UserGroup, Tenant, UserID, PasswordHash, Salt, IsSuperuser),
                     import_csv(UserGroup, NewCSV, Seq);
                 {error, Reason} ->
                     {error, Reason}
@@ -411,6 +419,8 @@ get_user_info_by_seq([], [], #{user_id := _, password_hash := _} = Acc) ->
     {ok, Acc};
 get_user_info_by_seq(_, [], _) ->
     {error, bad_format};
+get_user_info_by_seq([Tenant | More1], [<<"tenant">> | More2], Acc) ->
+    get_user_info_by_seq(More1, More2, Acc#{tenant => Tenant});
 get_user_info_by_seq([UserID | More1], [<<"user_id">> | More2], Acc) ->
     get_user_info_by_seq(More1, More2, Acc#{user_id => UserID});
 get_user_info_by_seq([PasswordHash | More1], [<<"password_hash">> | More2], Acc) ->
@@ -424,9 +434,9 @@ get_user_info_by_seq([<<"false">> | More1], [<<"is_superuser">> | More2], Acc) -
 get_user_info_by_seq(_, _, _) ->
     {error, bad_format}.
 
-insert_user(UserGroup, UserID, PasswordHash, Salt, IsSuperuser) ->
+insert_user(UserGroup, Tenant, UserID, PasswordHash, Salt, IsSuperuser) ->
     UserInfo = #user_info{
-        user_id = {UserGroup, UserID},
+        user_id = {UserGroup, Tenant, UserID},
         password_hash = PasswordHash,
         salt = Salt,
         is_superuser = IsSuperuser
@@ -452,32 +462,40 @@ to_binary(B) when is_binary(B) ->
 to_binary(L) when is_list(L) ->
     iolist_to_binary(L).
 
-format_user_info(#user_info{user_id = {_, UserID}, is_superuser = IsSuperuser}) ->
+format_user_info(#user_info{user_id = {_, _, UserID}, is_superuser = IsSuperuser}) ->
     #{user_id => UserID, is_superuser => IsSuperuser}.
 
 ms_from_qstring(QString) ->
-    case lists:keytake(user_group, 1, QString) of
-        {value, {user_group, '=:=', UserGroup}, QString2} ->
-            group_match_spec(UserGroup, QString2);
-        _ ->
-            []
-    end.
+    %% assert, the user_group and tenant must be provided
+    {value, {user_group, '=:=', UserGroup}, QString1} = lists:keytake(user_group, 1, QString),
+    {value, {tenant, '=:=', Tenant}, QString2} = lists:keytake(tenant, 1, QString1),
+    group_match_spec(UserGroup, Tenant, QString2).
 
 group_match_spec(UserGroup) ->
-    group_match_spec(UserGroup, []).
+    ets:fun2ms(
+        fun(#user_info{user_id = {Group, _, _}} = User) when Group =:= UserGroup ->
+            User
+        end
+    ).
 
-group_match_spec(UserGroup, QString) ->
+group_match_spec(UserGroup, Tenant, QString) ->
     case lists:keyfind(is_superuser, 1, QString) of
         false ->
-            ets:fun2ms(fun(#user_info{user_id = {Group, _}} = User) when Group =:= UserGroup ->
-                User
-            end);
+            ets:fun2ms(
+                fun(#user_info{user_id = {Group, Tenant0, _}} = User) when
+                    Group =:= UserGroup, Tenant0 =:= Tenant
+                ->
+                    User
+                end
+            );
         {is_superuser, '=:=', Value} ->
-            ets:fun2ms(fun(#user_info{user_id = {Group, _}, is_superuser = IsSuper} = User) when
-                Group =:= UserGroup, IsSuper =:= Value
-            ->
-                User
-            end)
+            ets:fun2ms(
+                fun(#user_info{user_id = {Group, Tenant0, _}, is_superuser = IsSuper} = User) when
+                    Group =:= UserGroup, Tenant0 =:= Tenant, IsSuper =:= Value
+                ->
+                    User
+                end
+            )
     end.
 
 csv_data(Data) ->

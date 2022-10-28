@@ -75,11 +75,11 @@
 
 %% export these funcs for gateway
 -export([
-    list_users/3,
-    add_user/3,
-    delete_user/3,
-    find_user/3,
-    update_user/4,
+    list_users/4,
+    add_user/4,
+    delete_user/4,
+    find_user/4,
+    update_user/5,
     serialize_error/1,
     aggregate_metrics/1,
 
@@ -684,89 +684,119 @@ listener_authenticator_move(
 listener_authenticator_move(post, #{bindings := #{listener_id := _, id := _}, body := _}) ->
     serialize_error({missing_parameter, position}).
 
-authenticator_users(post, #{bindings := #{id := AuthenticatorID}, body := UserInfo}) ->
-    add_user(?GLOBAL, AuthenticatorID, UserInfo);
-authenticator_users(get, #{bindings := #{id := AuthenticatorID}, query_string := QueryString}) ->
-    list_users(?GLOBAL, AuthenticatorID, QueryString).
+authenticator_users(post, Req = #{bindings := #{id := AuthenticatorID}, body := UserInfo}) ->
+    Tenant = tenant(Req),
+    add_user(?GLOBAL, AuthenticatorID, Tenant, UserInfo);
+authenticator_users(
+    get, Req = #{bindings := #{id := AuthenticatorID}, query_string := QueryString}
+) ->
+    Tenant = tenant(Req),
+    list_users(?GLOBAL, AuthenticatorID, Tenant, QueryString).
 
-authenticator_user(put, #{
-    bindings := #{
-        id := AuthenticatorID,
-        user_id := UserID
-    },
-    body := UserInfo
-}) ->
-    update_user(?GLOBAL, AuthenticatorID, UserID, UserInfo);
-authenticator_user(get, #{bindings := #{id := AuthenticatorID, user_id := UserID}}) ->
-    find_user(?GLOBAL, AuthenticatorID, UserID);
-authenticator_user(delete, #{bindings := #{id := AuthenticatorID, user_id := UserID}}) ->
-    delete_user(?GLOBAL, AuthenticatorID, UserID).
+authenticator_user(
+    put,
+    Req = #{
+        bindings := #{
+            id := AuthenticatorID,
+            user_id := UserID
+        },
+        body := UserInfo
+    }
+) ->
+    Tenant = tenant(Req),
+    update_user(?GLOBAL, AuthenticatorID, Tenant, UserID, UserInfo);
+authenticator_user(get, Req = #{bindings := #{id := AuthenticatorID, user_id := UserID}}) ->
+    Tenant = tenant(Req),
+    find_user(?GLOBAL, AuthenticatorID, Tenant, UserID);
+authenticator_user(delete, Req = #{bindings := #{id := AuthenticatorID, user_id := UserID}}) ->
+    Tenant = tenant(Req),
+    delete_user(?GLOBAL, AuthenticatorID, Tenant, UserID).
 
-listener_authenticator_users(post, #{
-    bindings := #{
-        listener_id := ListenerID,
-        id := AuthenticatorID
-    },
-    body := UserInfo
-}) ->
+listener_authenticator_users(
+    post,
+    Req = #{
+        bindings := #{
+            listener_id := ListenerID,
+            id := AuthenticatorID
+        },
+        body := UserInfo
+    }
+) ->
+    Tenant = tenant(Req),
     with_chain(
         ListenerID,
         fun(ChainName) ->
-            add_user(ChainName, AuthenticatorID, UserInfo)
+            add_user(ChainName, AuthenticatorID, Tenant, UserInfo)
         end
     );
-listener_authenticator_users(get, #{
-    bindings := #{
-        listener_id := ListenerID,
-        id := AuthenticatorID
-    },
-    query_string := PageParams
-}) ->
+listener_authenticator_users(
+    get,
+    Req = #{
+        bindings := #{
+            listener_id := ListenerID,
+            id := AuthenticatorID
+        },
+        query_string := PageParams
+    }
+) ->
+    Tenant = tenant(Req),
     with_chain(
         ListenerID,
         fun(ChainName) ->
-            list_users(ChainName, AuthenticatorID, PageParams)
+            list_users(ChainName, AuthenticatorID, Tenant, PageParams)
         end
     ).
 
-listener_authenticator_user(put, #{
-    bindings := #{
-        listener_id := ListenerID,
-        id := AuthenticatorID,
-        user_id := UserID
-    },
-    body := UserInfo
-}) ->
+listener_authenticator_user(
+    put,
+    Req = #{
+        bindings := #{
+            listener_id := ListenerID,
+            id := AuthenticatorID,
+            user_id := UserID
+        },
+        body := UserInfo
+    }
+) ->
+    Tenant = tenant(Req),
     with_chain(
         ListenerID,
         fun(ChainName) ->
-            update_user(ChainName, AuthenticatorID, UserID, UserInfo)
+            update_user(ChainName, AuthenticatorID, Tenant, UserID, UserInfo)
         end
     );
-listener_authenticator_user(get, #{
-    bindings := #{
-        listener_id := ListenerID,
-        id := AuthenticatorID,
-        user_id := UserID
+listener_authenticator_user(
+    get,
+    Req = #{
+        bindings := #{
+            listener_id := ListenerID,
+            id := AuthenticatorID,
+            user_id := UserID
+        }
     }
-}) ->
+) ->
+    Tenant = tenant(Req),
     with_chain(
         ListenerID,
         fun(ChainName) ->
-            find_user(ChainName, AuthenticatorID, UserID)
+            find_user(ChainName, AuthenticatorID, Tenant, UserID)
         end
     );
-listener_authenticator_user(delete, #{
-    bindings := #{
-        listener_id := ListenerID,
-        id := AuthenticatorID,
-        user_id := UserID
+listener_authenticator_user(
+    delete,
+    Req = #{
+        bindings := #{
+            listener_id := ListenerID,
+            id := AuthenticatorID,
+            user_id := UserID
+        }
     }
-}) ->
+) ->
+    Tenant = tenant(Req),
     with_chain(
         ListenerID,
         fun(ChainName) ->
-            delete_user(ChainName, AuthenticatorID, UserID)
+            delete_user(ChainName, AuthenticatorID, Tenant, UserID)
         end
     ).
 
@@ -1038,6 +1068,7 @@ move_authenticator(ConfKeyPath, ChainName, AuthenticatorID, Position) ->
 add_user(
     ChainName,
     AuthenticatorID,
+    Tenant,
     #{<<"user_id">> := UserID, <<"password">> := Password} = UserInfo
 ) ->
     IsSuperuser = maps:get(<<"is_superuser">>, UserInfo, false),
@@ -1045,6 +1076,7 @@ add_user(
         emqx_authentication:add_user(
             ChainName,
             AuthenticatorID,
+            Tenant,
             #{
                 user_id => UserID,
                 password => Password,
@@ -1057,18 +1089,22 @@ add_user(
         {error, Reason} ->
             serialize_error({user_error, Reason})
     end;
-add_user(_, _, #{<<"user_id">> := _}) ->
+add_user(_, _, _, #{<<"user_id">> := _}) ->
     serialize_error({missing_parameter, password});
-add_user(_, _, _) ->
+add_user(_, _, _, _) ->
     serialize_error({missing_parameter, user_id}).
 
-update_user(ChainName, AuthenticatorID, UserID, UserInfo0) ->
+update_user(ChainName, AuthenticatorID, Tenant, UserID, UserInfo0) ->
     case maps:with([<<"password">>, <<"is_superuser">>], UserInfo0) =:= #{} of
         true ->
             serialize_error({missing_parameter, password});
         false ->
             UserInfo = emqx_map_lib:safe_atom_key_map(UserInfo0),
-            case emqx_authentication:update_user(ChainName, AuthenticatorID, UserID, UserInfo) of
+            case
+                emqx_authentication:update_user(
+                    ChainName, AuthenticatorID, Tenant, UserID, UserInfo
+                )
+            of
                 {ok, User} ->
                     {200, User};
                 {error, Reason} ->
@@ -1076,24 +1112,24 @@ update_user(ChainName, AuthenticatorID, UserID, UserInfo0) ->
             end
     end.
 
-find_user(ChainName, AuthenticatorID, UserID) ->
-    case emqx_authentication:lookup_user(ChainName, AuthenticatorID, UserID) of
+find_user(ChainName, AuthenticatorID, Tenant, UserID) ->
+    case emqx_authentication:lookup_user(ChainName, AuthenticatorID, Tenant, UserID) of
         {ok, User} ->
             {200, User};
         {error, Reason} ->
             serialize_error({user_error, Reason})
     end.
 
-delete_user(ChainName, AuthenticatorID, UserID) ->
-    case emqx_authentication:delete_user(ChainName, AuthenticatorID, UserID) of
+delete_user(ChainName, AuthenticatorID, Tenant, UserID) ->
+    case emqx_authentication:delete_user(ChainName, AuthenticatorID, Tenant, UserID) of
         ok ->
             {204};
         {error, Reason} ->
             serialize_error({user_error, Reason})
     end.
 
-list_users(ChainName, AuthenticatorID, QueryString) ->
-    case emqx_authentication:list_users(ChainName, AuthenticatorID, QueryString) of
+list_users(ChainName, AuthenticatorID, Tenant, QueryString) ->
+    case emqx_authentication:list_users(ChainName, AuthenticatorID, Tenant, QueryString) of
         {error, page_limit_invalid} ->
             {400, #{code => <<"INVALID_PARAMETER">>, message => <<"page_limit_invalid">>}};
         {error, Reason} ->
@@ -1266,6 +1302,9 @@ paginated_list_type(Type) ->
         {data, hoconsc:array(Type)},
         {meta, ref(emqx_dashboard_swagger, meta)}
     ].
+
+tenant(_Req = #{headers := Headers}) ->
+    maps:get(<<"emqx_tenant">>, Headers, undefined).
 
 authenticator_array_example() ->
     [Config || #{value := Config} <- maps:values(authenticator_examples())].

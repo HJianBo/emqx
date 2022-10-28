@@ -43,7 +43,7 @@
     delete_user/2,
     update_user/3,
     lookup_user/2,
-    list_users/2
+    list_users/3
 ]).
 
 -export([
@@ -260,7 +260,7 @@ lookup_user(UserID, #{user_group := UserGroup}) ->
             {error, not_found}
     end.
 
-list_users(QueryString, #{user_group := UserGroup}) ->
+list_users(_Tenant, QueryString, #{user_group := UserGroup}) ->
     NQueryString = QueryString#{<<"user_group">> => UserGroup},
     emqx_mgmt_api:node_query(node(), NQueryString, ?TAB, ?AUTHN_QSCHEMA, ?QUERY_FUN).
 

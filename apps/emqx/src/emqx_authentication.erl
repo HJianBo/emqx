@@ -62,11 +62,11 @@
 %% APIs for observer built_in_database
 -export([
     import_users/3,
-    add_user/3,
-    delete_user/3,
-    update_user/4,
-    lookup_user/3,
-    list_users/3
+    add_user/4,
+    delete_user/4,
+    update_user/5,
+    lookup_user/4,
+    list_users/4
 ]).
 
 %% gen_server callbacks
@@ -179,42 +179,51 @@ when
 when
     Filename :: binary(), FileData :: binary(), State :: state().
 
--callback add_user(UserInfo, State) ->
+-callback add_user(Tenant, UserInfo, State) ->
     {ok, User}
     | {error, term()}
 when
-    UserInfo :: user_info(), State :: state(), User :: user_info().
+    Tenant :: emqx_types:tenant(), UserInfo :: user_info(), State :: state(), User :: user_info().
 
--callback delete_user(UserID, State) ->
+-callback delete_user(Tenant, UserID, State) ->
     ok
     | {error, term()}
 when
-    UserID :: binary(), State :: state().
+    Tenant :: emqx_types:tenant(), UserID :: binary(), State :: state().
 
--callback update_user(UserID, UserInfo, State) ->
+-callback update_user(Tenant, UserID, UserInfo, State) ->
     {ok, User}
     | {error, term()}
 when
-    UserID :: binary(), UserInfo :: map(), State :: state(), User :: user_info().
+    Tenant :: emqx_types:tenant(),
+    UserID :: binary(),
+    UserInfo :: map(),
+    State :: state(),
+    User :: user_info().
 
--callback lookup_user(UserID, UserInfo, State) ->
+-callback lookup_user(Tenant, UserID, UserInfo, State) ->
     {ok, User}
     | {error, term()}
 when
-    UserID :: binary(), UserInfo :: map(), State :: state(), User :: user_info().
+    Tenant :: emqx_types:tenant(),
+    UserID :: binary(),
+    UserInfo :: map(),
+    State :: state(),
+    User :: user_info().
 
--callback list_users(State) ->
+-callback list_users(Tenant, QueryString, State) ->
     {ok, Users}
+    | {error, term()}
 when
-    State :: state(), Users :: [user_info()].
+    Tenant :: emqx_types:tenant(), QueryString :: map(), State :: state(), Users :: [user_info()].
 
 -optional_callbacks([
     import_users/2,
-    add_user/2,
-    delete_user/2,
-    update_user/3,
-    lookup_user/3,
-    list_users/1,
+    add_user/3,
+    delete_user/3,
+    update_user/4,
+    lookup_user/4,
+    list_users/3,
     check_config/1
 ]).
 
@@ -411,30 +420,33 @@ move_authenticator(ChainName, AuthenticatorID, Position) ->
 -spec import_users(chain_name(), authenticator_id(), {binary(), binary()}) ->
     ok | {error, term()}.
 import_users(ChainName, AuthenticatorID, Filename) ->
+    %% TODO: called by admin only
     call({import_users, ChainName, AuthenticatorID, Filename}).
 
--spec add_user(chain_name(), authenticator_id(), user_info()) ->
+-spec add_user(chain_name(), authenticator_id(), emqx_types:tenant(), user_info()) ->
     {ok, user_info()} | {error, term()}.
-add_user(ChainName, AuthenticatorID, UserInfo) ->
-    call({add_user, ChainName, AuthenticatorID, UserInfo}).
+add_user(ChainName, AuthenticatorID, Tenant, UserInfo) ->
+    call({add_user, ChainName, AuthenticatorID, Tenant, UserInfo}).
 
--spec delete_user(chain_name(), authenticator_id(), binary()) -> ok | {error, term()}.
-delete_user(ChainName, AuthenticatorID, UserID) ->
-    call({delete_user, ChainName, AuthenticatorID, UserID}).
+-spec delete_user(chain_name(), authenticator_id(), emqx_types:tenant(), binary()) ->
+    ok | {error, term()}.
+delete_user(ChainName, AuthenticatorID, Tenant, UserID) ->
+    call({delete_user, ChainName, AuthenticatorID, Tenant, UserID}).
 
--spec update_user(chain_name(), authenticator_id(), binary(), map()) ->
+-spec update_user(chain_name(), authenticator_id(), emqx_types:tenant(), binary(), map()) ->
     {ok, user_info()} | {error, term()}.
-update_user(ChainName, AuthenticatorID, UserID, NewUserInfo) ->
-    call({update_user, ChainName, AuthenticatorID, UserID, NewUserInfo}).
+update_user(ChainName, AuthenticatorID, Tenant, UserID, NewUserInfo) ->
+    call({update_user, ChainName, AuthenticatorID, Tenant, UserID, NewUserInfo}).
 
--spec lookup_user(chain_name(), authenticator_id(), binary()) ->
+-spec lookup_user(chain_name(), authenticator_id(), emqx_types:tenant(), binary()) ->
     {ok, user_info()} | {error, term()}.
-lookup_user(ChainName, AuthenticatorID, UserID) ->
-    call({lookup_user, ChainName, AuthenticatorID, UserID}).
+lookup_user(ChainName, AuthenticatorID, Tenant, UserID) ->
+    call({lookup_user, ChainName, AuthenticatorID, Tenant, UserID}).
 
--spec list_users(chain_name(), authenticator_id(), map()) -> {ok, [user_info()]} | {error, term()}.
-list_users(ChainName, AuthenticatorID, FuzzyParams) ->
-    call({list_users, ChainName, AuthenticatorID, FuzzyParams}).
+-spec list_users(chain_name(), authenticator_id(), emqx_types:tenant(), map()) ->
+    {ok, [user_info()]} | {error, term()}.
+list_users(ChainName, AuthenticatorID, Tenant, FuzzyParams) ->
+    call({list_users, ChainName, AuthenticatorID, Tenant, FuzzyParams}).
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -502,20 +514,22 @@ handle_call({move_authenticator, ChainName, AuthenticatorID, Position}, _From, S
 handle_call({import_users, ChainName, AuthenticatorID, Filename}, _From, State) ->
     Reply = call_authenticator(ChainName, AuthenticatorID, import_users, [Filename]),
     reply(Reply, State);
-handle_call({add_user, ChainName, AuthenticatorID, UserInfo}, _From, State) ->
-    Reply = call_authenticator(ChainName, AuthenticatorID, add_user, [UserInfo]),
+handle_call({add_user, ChainName, AuthenticatorID, Tenant, UserInfo}, _From, State) ->
+    Reply = call_authenticator(ChainName, AuthenticatorID, add_user, [Tenant, UserInfo]),
     reply(Reply, State);
-handle_call({delete_user, ChainName, AuthenticatorID, UserID}, _From, State) ->
-    Reply = call_authenticator(ChainName, AuthenticatorID, delete_user, [UserID]),
+handle_call({delete_user, ChainName, AuthenticatorID, Tenant, UserID}, _From, State) ->
+    Reply = call_authenticator(ChainName, AuthenticatorID, delete_user, [Tenant, UserID]),
     reply(Reply, State);
-handle_call({update_user, ChainName, AuthenticatorID, UserID, NewUserInfo}, _From, State) ->
-    Reply = call_authenticator(ChainName, AuthenticatorID, update_user, [UserID, NewUserInfo]),
+handle_call({update_user, ChainName, AuthenticatorID, Tenant, UserID, NewUserInfo}, _From, State) ->
+    Reply = call_authenticator(ChainName, AuthenticatorID, update_user, [
+        Tenant, UserID, NewUserInfo
+    ]),
     reply(Reply, State);
-handle_call({lookup_user, ChainName, AuthenticatorID, UserID}, _From, State) ->
-    Reply = call_authenticator(ChainName, AuthenticatorID, lookup_user, [UserID]),
+handle_call({lookup_user, ChainName, AuthenticatorID, Tenant, UserID}, _From, State) ->
+    Reply = call_authenticator(ChainName, AuthenticatorID, lookup_user, [Tenant, UserID]),
     reply(Reply, State);
-handle_call({list_users, ChainName, AuthenticatorID, FuzzyParams}, _From, State) ->
-    Reply = call_authenticator(ChainName, AuthenticatorID, list_users, [FuzzyParams]),
+handle_call({list_users, ChainName, AuthenticatorID, Tenant, FuzzyParams}, _From, State) ->
+    Reply = call_authenticator(ChainName, AuthenticatorID, list_users, [Tenant, FuzzyParams]),
     reply(Reply, State);
 handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
