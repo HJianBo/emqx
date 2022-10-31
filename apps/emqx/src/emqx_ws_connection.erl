@@ -377,19 +377,16 @@ get_peer_info(Type, Listener, Req, Opts) ->
         emqx_config:get_listener_conf(Type, Listener, [proxy_protocol]) andalso
             maps:get(proxy_header, Req)
     of
-        #{src_address := SrcAddr, src_port := SrcPort, ssl := SSL} = ProxyInfo ->
+        #{src_address := SrcAddr, src_port := SrcPort} = ProxyInfo ->
             SourceName = {SrcAddr, SrcPort},
             %% Notice: Only CN is available in Proxy Protocol V2 additional info
             SourceSSL =
-                case maps:get(cn, SSL, undefined) of
+                case emqx_map_lib:deep_get([ssl, cn], ProxyInfo, undefined) of
                     undefined -> nossl;
                     CN -> [{pp2_ssl_cn, CN}]
                 end,
             PeerSNI = maps:get(authority, ProxyInfo, undefined),
             {SourceName, SourceSSL, PeerSNI};
-        #{src_address := SrcAddr, src_port := SrcPort} ->
-            SourceName = {SrcAddr, SrcPort},
-            {SourceName, nossl, undefined};
         _ ->
             {get_peer(Req, Opts), cowboy_req:cert(Req), undefined}
     end.
