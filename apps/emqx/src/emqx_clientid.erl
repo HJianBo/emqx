@@ -68,7 +68,7 @@ update_tenant(Tenant, _GroupedClientId = {_, ClientId}) ->
 update_tenant(Tenant, ClientId) when ?IS_NORMAL_ID(ClientId) ->
     {Tenant, ClientId};
 update_tenant(_, _) ->
-    error(badrag).
+    error(badarg).
 
 -spec update_clientid(emqx_types:tenant(), grouped_clientid()) -> grouped_clientid().
 update_clientid(Id, _GroupedClientId = {Tenant, _}) ->
@@ -76,7 +76,7 @@ update_clientid(Id, _GroupedClientId = {Tenant, _}) ->
 update_clientid(Id, ClientId) when ?IS_NORMAL_ID(ClientId) ->
     Id;
 update_clientid(_, _) ->
-    error(badrag).
+    error(badarg).
 
 -spec is_undefined_clientid(grouped_clientid()) -> boolean().
 is_undefined_clientid(undefined) -> true;
