@@ -27,8 +27,14 @@
 -define(QUERY_USERNAME_FUN, {?MODULE, query_username}).
 -define(QUERY_CLIENTID_FUN, {?MODULE, query_clientid}).
 
--define(ACL_USERNAME_QSCHEMA, [{<<"like_username">>, binary}]).
--define(ACL_CLIENTID_QSCHEMA, [{<<"like_clientid">>, binary}]).
+-define(ACL_USERNAME_QSCHEMA, [
+    {<<"tenant">>, binary},
+    {<<"like_username">>, binary}
+]).
+-define(ACL_CLIENTID_QSCHEMA, [
+    {<<"tenant">>, binary},
+    {<<"like_clientid">>, binary}
+]).
 
 -export([
     api_spec/0,
@@ -401,7 +407,10 @@ fields(rules) ->
 %% HTTP API
 %%--------------------------------------------------------------------
 
-users(get, #{query_string := QueryString}) ->
+users(get, Req = #{query_string := QueryString0}) ->
+    Tenant = tenant(Req),
+    %% XXX: force set tenant params
+    QueryString = QueryString0#{<<"tenant">> => Tenant},
     case
         emqx_mgmt_api:node_query(
             node(),
@@ -419,12 +428,13 @@ users(get, #{query_string := QueryString}) ->
         Result ->
             {200, Result}
     end;
-users(post, #{body := Body}) when is_list(Body) ->
-    case ensure_all_not_exists(<<"username">>, username, Body) of
+users(post, Req = #{body := Body}) when is_list(Body) ->
+    Tenant = tenant(Req),
+    case ensure_all_not_exists(Tenant, <<"username">>, username, Body) of
         [] ->
             lists:foreach(
                 fun(#{<<"username">> := Username, <<"rules">> := Rules}) ->
-                    emqx_authz_mnesia:store_rules({username, Username}, format_rules(Rules))
+                    emqx_authz_mnesia:store_rules({username, Tenant, Username}, format_rules(Rules))
                 end,
                 Body
             ),
@@ -436,7 +446,10 @@ users(post, #{body := Body}) when is_list(Body) ->
             }}
     end.
 
-clients(get, #{query_string := QueryString}) ->
+clients(get, Req = #{query_string := QueryString0}) ->
+    Tenant = tenant(Req),
+    %% XXX: force set tenant params
+    QueryString = QueryString0#{<<"tenant">> => Tenant},
     case
         emqx_mgmt_api:node_query(
             node(),
@@ -454,12 +467,13 @@ clients(get, #{query_string := QueryString}) ->
         Result ->
             {200, Result}
     end;
-clients(post, #{body := Body}) when is_list(Body) ->
-    case ensure_all_not_exists(<<"clientid">>, clientid, Body) of
+clients(post, Req = #{body := Body}) when is_list(Body) ->
+    Tenant = tenant(Req),
+    case ensure_all_not_exists(Tenant, <<"clientid">>, clientid, Body) of
         [] ->
             lists:foreach(
                 fun(#{<<"clientid">> := ClientID, <<"rules">> := Rules}) ->
-                    emqx_authz_mnesia:store_rules({clientid, ClientID}, format_rules(Rules))
+                    emqx_authz_mnesia:store_rules({clientid, Tenant, ClientID}, format_rules(Rules))
                 end,
                 Body
             ),
@@ -471,8 +485,9 @@ clients(post, #{body := Body}) when is_list(Body) ->
             }}
     end.
 
-user(get, #{bindings := #{username := Username}}) ->
-    case emqx_authz_mnesia:get_rules({username, Username}) of
+user(get, Req = #{bindings := #{username := Username}}) ->
+    Tenant = tenant(Req),
+    case emqx_authz_mnesia:get_rules({username, Tenant, Username}) of
         not_found ->
             {404, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}};
         {ok, Rules} ->
@@ -488,23 +503,29 @@ user(get, #{bindings := #{username := Username}}) ->
                 ]
             }}
     end;
-user(put, #{
-    bindings := #{username := Username},
-    body := #{<<"username">> := Username, <<"rules">> := Rules}
-}) ->
-    emqx_authz_mnesia:store_rules({username, Username}, format_rules(Rules)),
+user(
+    put,
+    Req = #{
+        bindings := #{username := Username},
+        body := #{<<"username">> := Username, <<"rules">> := Rules}
+    }
+) ->
+    Tenant = tenant(Req),
+    emqx_authz_mnesia:store_rules({username, Tenant, Username}, format_rules(Rules)),
     {204};
-user(delete, #{bindings := #{username := Username}}) ->
-    case emqx_authz_mnesia:get_rules({username, Username}) of
+user(delete, Req = #{bindings := #{username := Username}}) ->
+    Tenant = tenant(Req),
+    case emqx_authz_mnesia:get_rules({username, Tenant, Username}) of
         not_found ->
             {404, #{code => <<"NOT_FOUND">>, message => <<"Username Not Found">>}};
         {ok, _Rules} ->
-            emqx_authz_mnesia:delete_rules({username, Username}),
+            emqx_authz_mnesia:delete_rules({username, Tenant, Username}),
             {204}
     end.
 
-client(get, #{bindings := #{clientid := ClientID}}) ->
-    case emqx_authz_mnesia:get_rules({clientid, ClientID}) of
+client(get, Req = #{bindings := #{clientid := ClientID}}) ->
+    Tenant = tenant(Req),
+    case emqx_authz_mnesia:get_rules({clientid, Tenant, ClientID}) of
         not_found ->
             {404, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}};
         {ok, Rules} ->
@@ -520,18 +541,23 @@ client(get, #{bindings := #{clientid := ClientID}}) ->
                 ]
             }}
     end;
-client(put, #{
-    bindings := #{clientid := ClientID},
-    body := #{<<"clientid">> := ClientID, <<"rules">> := Rules}
-}) ->
-    emqx_authz_mnesia:store_rules({clientid, ClientID}, format_rules(Rules)),
+client(
+    put,
+    Req = #{
+        bindings := #{clientid := ClientID},
+        body := #{<<"clientid">> := ClientID, <<"rules">> := Rules}
+    }
+) ->
+    Tenant = tenant(Req),
+    emqx_authz_mnesia:store_rules({clientid, Tenant, ClientID}, format_rules(Rules)),
     {204};
-client(delete, #{bindings := #{clientid := ClientID}}) ->
-    case emqx_authz_mnesia:get_rules({clientid, ClientID}) of
+client(delete, Req = #{bindings := #{clientid := ClientID}}) ->
+    Tenant = tenant(Req),
+    case emqx_authz_mnesia:get_rules({clientid, Tenant, ClientID}) of
         not_found ->
             {404, #{code => <<"NOT_FOUND">>, message => <<"ClientID Not Found">>}};
         {ok, _Rules} ->
-            emqx_authz_mnesia:delete_rules({clientid, ClientID}),
+            emqx_authz_mnesia:delete_rules({clientid, Tenant, ClientID}),
             {204}
     end.
 
@@ -576,8 +602,9 @@ purge(delete, _) ->
 %%--------------------------------------------------------------------
 %% Query Functions
 
-query_username(Tab, {_QString, []}, Continuation, Limit) ->
-    Ms = emqx_authz_mnesia:list_username_rules(),
+query_username(Tab, {QString, []}, Continuation, Limit) ->
+    {value, {tenant, _, Tenant}, _} = lists:keytake(tenant, 1, QString),
+    Ms = emqx_authz_mnesia:list_username_rules(Tenant),
     emqx_mgmt_api:select_table_with_count(
         Tab,
         Ms,
@@ -585,8 +612,9 @@ query_username(Tab, {_QString, []}, Continuation, Limit) ->
         Limit,
         fun format_result/1
     );
-query_username(Tab, {_QString, FuzzyQString}, Continuation, Limit) ->
-    Ms = emqx_authz_mnesia:list_username_rules(),
+query_username(Tab, {QString, FuzzyQString}, Continuation, Limit) ->
+    {value, {tenant, _, Tenant}, _} = lists:keytake(tenant, 1, QString),
+    Ms = emqx_authz_mnesia:list_username_rules(Tenant),
     FuzzyFilterFun = fuzzy_filter_fun(FuzzyQString),
     emqx_mgmt_api:select_table_with_count(
         Tab,
@@ -596,8 +624,9 @@ query_username(Tab, {_QString, FuzzyQString}, Continuation, Limit) ->
         fun format_result/1
     ).
 
-query_clientid(Tab, {_QString, []}, Continuation, Limit) ->
-    Ms = emqx_authz_mnesia:list_clientid_rules(),
+query_clientid(Tab, {QString, []}, Continuation, Limit) ->
+    {value, {tenant, _, Tenant}, _} = lists:keytake(tenant, 1, QString),
+    Ms = emqx_authz_mnesia:list_clientid_rules(Tenant),
     emqx_mgmt_api:select_table_with_count(
         Tab,
         Ms,
@@ -605,8 +634,9 @@ query_clientid(Tab, {_QString, []}, Continuation, Limit) ->
         Limit,
         fun format_result/1
     );
-query_clientid(Tab, {_QString, FuzzyQString}, Continuation, Limit) ->
-    Ms = emqx_authz_mnesia:list_clientid_rules(),
+query_clientid(Tab, {QString, FuzzyQString}, Continuation, Limit) ->
+    {value, {tenant, _, Tenant}, _} = lists:keytake(tenant, 1, QString),
+    Ms = emqx_authz_mnesia:list_clientid_rules(Tenant),
     FuzzyFilterFun = fuzzy_filter_fun(FuzzyQString),
     emqx_mgmt_api:select_table_with_count(
         Tab,
@@ -736,10 +766,10 @@ rules_example({ExampleName, ExampleType}) ->
         }
     }.
 
-ensure_all_not_exists(Key, Type, Cfgs) ->
+ensure_all_not_exists(Tenant, Key, Type, Cfgs) ->
     lists:foldl(
         fun(#{Key := Id}, Acc) ->
-            case emqx_authz_mnesia:get_rules({Type, Id}) of
+            case emqx_authz_mnesia:get_rules({Type, Tenant, Id}) of
                 not_found ->
                     Acc;
                 _ ->
@@ -761,3 +791,6 @@ binjoin([], Acc) ->
     Acc.
 
 binfmt(Fmt, Args) -> iolist_to_binary(io_lib:format(Fmt, Args)).
+
+tenant(_Req = #{headers := Headers}) ->
+    maps:get(<<"emqx_tenant">>, Headers, undefined).
