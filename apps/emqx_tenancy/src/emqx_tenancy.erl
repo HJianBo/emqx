@@ -38,7 +38,8 @@ mnesia(boot) ->
     ]).
 
 create(Tenant) ->
-    New = (to_tenant(Tenant))#tenant{created_at = now_second()},
+    Now = now_second(),
+    New = (to_tenant(Tenant))#tenant{created_at = Now, updated_at = Now},
     trans(fun ?MODULE:do_create/1, [New]).
 
 read(Id) ->
@@ -80,7 +81,7 @@ do_update(Tenant = #tenant{id = Id}) ->
         [] ->
             mnesia:abort(not_found);
         [#tenant{created_at = CreatedAt}] ->
-            NewTenant = Tenant#tenant{created_at = CreatedAt},
+            NewTenant = Tenant#tenant{created_at = CreatedAt, updated_at = now_second()},
             ok = mnesia:write(?TENANCY, NewTenant, write),
             NewTenant
     end.
@@ -118,8 +119,7 @@ to_tenant(Tenant) ->
         id = Id,
         quota = Quota,
         status = Status,
-        desc = Desc,
-        updated_at = now_second()
+        desc = Desc
     }.
 
 now_second() ->

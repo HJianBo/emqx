@@ -62,7 +62,7 @@ schema("/tenants") ->
                         desc => <<"Fuzzy search `tenant id` as substring">>
                     })},
                 {gte_created_at,
-                    hoconsc:mk(emqx_datetime:epoch_millisecond(), #{
+                    hoconsc:mk(emqx_datetime:epoch_second(), #{
                         in => query,
                         required => false,
                         desc =>
@@ -70,7 +70,7 @@ schema("/tenants") ->
                                 " than or equal method, rfc3339 or timestamp(millisecond)">>
                     })},
                 {lte_created_at,
-                    hoconsc:mk(emqx_datetime:epoch_millisecond(), #{
+                    hoconsc:mk(emqx_datetime:epoch_second(), #{
                         in => query,
                         required => false,
                         desc =>
@@ -78,7 +78,7 @@ schema("/tenants") ->
                                 " than or equal method, rfc3339 or timestamp(millisecond)">>
                     })},
                 {gte_updated_at,
-                    hoconsc:mk(emqx_datetime:epoch_millisecond(), #{
+                    hoconsc:mk(emqx_datetime:epoch_second(), #{
                         in => query,
                         required => false,
                         desc =>
@@ -86,7 +86,7 @@ schema("/tenants") ->
                                 " than or equal method, rfc3339 or timestamp(millisecond)">>
                     })},
                 {lte_updated_at,
-                    hoconsc:mk(emqx_datetime:epoch_millisecond(), #{
+                    hoconsc:mk(emqx_datetime:epoch_second(), #{
                         in => query,
                         required => false,
                         desc =>
@@ -171,7 +171,7 @@ fields(tenant) ->
         {desc,
             ?HOCON(binary(), #{
                 desc => "Description of the tenant",
-                required => true,
+                required => false,
                 example => "This is a tenant for emqx"
             })}
     ];

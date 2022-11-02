@@ -24,8 +24,8 @@
     quota :: map(),
     status :: enabled | disabled,
     desc :: binary(),
-    created_at :: integer(),
-    updated_at :: integer()
+    created_at :: emqx_datetime:epoch_second(),
+    updated_at :: emqx_datetime:epoch_second()
 }).
 
 -record(tenant_usage, {sni, usage}).
