@@ -50,11 +50,10 @@ read(Id) ->
     trans(fun ?MODULE:do_read/1, [Id]).
 
 -spec update(tenant_id(), map()) -> {ok, map()} | {error, any()}.
-update(Id, Changed) ->
-    case to_tenant(Changed) of
-        #tenant{id = Id} = Tenant -> trans(fun ?MODULE:do_update/1, [Tenant]);
-        _ -> {error, invalid_tenant}
-    end.
+update(Id, #{<<"id">> := Id} = Tenant) ->
+    trans(fun ?MODULE:do_update/1, [Tenant]);
+update(_Id, _) ->
+    {error, invalid_tenant}.
 
 -spec delete(tenant_id()) -> ok.
 delete(Id) ->
@@ -82,12 +81,24 @@ do_read(Id) ->
         [Tenant] -> Tenant
     end.
 
-do_update(Tenant = #tenant{id = Id}) ->
+do_update(Tenant = #{<<"id">> := Id}) ->
     case mnesia:read(?TENANCY, Id, write) of
         [] ->
             mnesia:abort(not_found);
-        [#tenant{created_at = CreatedAt}] ->
-            NewTenant = Tenant#tenant{created_at = CreatedAt, updated_at = now_second()},
+        [Prev] ->
+            #tenant{
+                quota = Quota,
+                status = Status,
+                created_at = CreatedAt,
+                desc = Desc
+            } = Prev,
+            NewTenant = Prev#tenant{
+                desc = maps:get(<<"desc">>, Tenant, Desc),
+                quota = maps:get(<<"quota">>, Tenant, Quota),
+                status = maps:get(<<"status">>, Tenant, Status),
+                created_at = CreatedAt,
+                updated_at = now_second()
+            },
             ok = mnesia:write(?TENANCY, NewTenant, write),
             NewTenant
     end.

@@ -22,12 +22,12 @@
 -type tenant_id() :: binary().
 
 -record(tenant, {
-    id :: tenant_id(),
-    quota :: map(),
-    status :: enabled | disabled,
-    desc :: binary(),
-    created_at :: emqx_datetime:epoch_second(),
-    updated_at :: emqx_datetime:epoch_second()
+    id :: tenant_id() | '_' | undefined,
+    quota :: map() | '_' | undefined,
+    status :: enabled | disabled | '_',
+    desc :: binary() | '_',
+    created_at :: emqx_datetime:epoch_second() | '_' | undefined,
+    updated_at :: emqx_datetime:epoch_second() | '_' | undefined
 }).
 
 -record(tenant_usage, {sni, usage}).

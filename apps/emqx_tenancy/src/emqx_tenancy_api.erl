@@ -149,52 +149,9 @@ schema("/tenants/:id") ->
     }.
 
 fields(tenant_req) ->
-    delete([created_at, updated_at], fields(tenant_resp));
+    delete([created_at, updated_at], tenant_field(false));
 fields(tenant_resp) ->
-    [
-        {id,
-            ?HOCON(
-                binary(),
-                #{
-                    desc => "Unique and format by ^[A-Za-z]+[A-Za-z0-9-_]*$",
-                    validator => fun ?MODULE:validate_id/1,
-                    required => true,
-                    example => <<"emqx-tenant-id">>
-                }
-            )},
-        {quota, ?HOCON(?REF(quota), #{})},
-        {status,
-            ?HOCON(
-                ?ENUM([disabled, enabled]),
-                #{
-                    desc => "The status of the tenant",
-                    required => false,
-                    default => enabled
-                }
-            )},
-        {desc,
-            ?HOCON(binary(), #{
-                desc => "Description of the tenant",
-                required => false,
-                example => "This is a tenant for emqx"
-            })},
-        {created_at,
-            hoconsc:mk(
-                emqx_datetime:epoch_second(),
-                #{
-                    desc => "tentant create datetime",
-                    example => <<"2022-12-01T00:00:00.000Z">>
-                }
-            )},
-        {updated_at,
-            hoconsc:mk(
-                emqx_datetime:epoch_second(),
-                #{
-                    desc => "tentant update datetime",
-                    example => <<"2022-12-01T00:00:00.000Z">>
-                }
-            )}
-    ];
+    tenant_field(true);
 fields(id) ->
     [
         {id,
@@ -240,6 +197,54 @@ fields(quota) ->
         {max_qos_allowed, ?HOCON(integer(), #{desc => <<"Max qos allowed">>, default => 2})},
         {max_topic_alias, ?HOCON(integer(), #{desc => <<"Max topic alias">>, default => 65535})}
         %% TODO ? force_shutdown_policy object {"max_message_queue_len": 1000,"max_heap_size": "32MB"}
+    ].
+
+tenant_field(Required) ->
+    [
+        {id,
+            ?HOCON(
+                binary(),
+                #{
+                    desc => "Unique and format by ^[A-Za-z]+[A-Za-z0-9-_]*$",
+                    validator => fun ?MODULE:validate_id/1,
+                    required => true,
+                    example => <<"emqx-tenant-id">>
+                }
+            )},
+        {quota, ?HOCON(?REF(quota), #{required => Required})},
+        {status,
+            ?HOCON(
+                ?ENUM([disabled, enabled]),
+                #{
+                    desc => "The status of the tenant",
+                    required => Required,
+                    default => enabled
+                }
+            )},
+        {desc,
+            ?HOCON(binary(), #{
+                desc => "Description of the tenant",
+                required => Required,
+                example => "This is a tenant for emqx"
+            })},
+        {created_at,
+            hoconsc:mk(
+                emqx_datetime:epoch_second(),
+                #{
+                    desc => "tentant create datetime",
+                    example => <<"2022-12-01T00:00:00.000Z">>,
+                    required => Required
+                }
+            )},
+        {updated_at,
+            hoconsc:mk(
+                emqx_datetime:epoch_second(),
+                #{
+                    desc => "tentant update datetime",
+                    example => <<"2022-12-01T00:00:00.000Z">>,
+                    required => Required
+                }
+            )}
     ].
 
 delete(Keys, Fields) ->
