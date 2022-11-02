@@ -97,7 +97,11 @@ schema("/tenants") ->
                 hoconsc:ref(emqx_dashboard_swagger, limit)
             ],
             responses => #{
-                200 => ?HOCON(?ARRAY(?REF(tenant_resp)), #{})
+                200 =>
+                    [
+                        {data, ?HOCON(?ARRAY(?REF(tenant_resp)), #{})},
+                        {meta, ?HOCON(?R_REF(emqx_dashboard_swagger, meta), #{})}
+                    ]
             }
         },
         post => #{
@@ -277,7 +281,7 @@ tenants(post, #{body := Tenant}) ->
 
 tenant_with_name(get, #{bindings := #{id := Id}}) ->
     case emqx_tenancy:read(Id) of
-        {ok, App} -> {200, App};
+        {ok, Tenant} -> {200, Tenant};
         {error, not_found} -> {404, ?NOT_FOUND_RESPONSE}
     end;
 tenant_with_name(delete, #{bindings := #{id := Id}}) ->
