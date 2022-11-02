@@ -97,7 +97,7 @@ schema("/tenants") ->
                 hoconsc:ref(emqx_dashboard_swagger, limit)
             ],
             responses => #{
-                200 => ?HOCON(?ARRAY(?REF(tenant)), #{})
+                200 => ?HOCON(?ARRAY(?REF(tenant_resp)), #{})
             }
         },
         post => #{
@@ -105,7 +105,7 @@ schema("/tenants") ->
             tags => ?TAGS,
             'requestBody' => ?REF(tenant_req),
             responses => #{
-                200 => ?REF(tenant),
+                200 => ?REF(tenant_resp),
                 400 => emqx_dashboard_swagger:error_codes(['BAD_REQUEST'])
             }
         }
@@ -118,7 +118,7 @@ schema("/tenants/:id") ->
             tags => ?TAGS,
             parameters => [?REF(id)],
             responses => #{
-                200 => ?REF(tenant),
+                200 => ?REF(tenant_resp),
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND'])
             }
         },
@@ -128,7 +128,7 @@ schema("/tenants/:id") ->
             parameters => [?REF(id)],
             'requestBody' => ?REF(tenant_req),
             responses => #{
-                200 => ?REF(tenant),
+                200 => ?REF(tenant_resp),
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND']),
                 400 => emqx_dashboard_swagger:error_codes(['BAD_REQUEST'])
             }
@@ -145,8 +145,8 @@ schema("/tenants/:id") ->
     }.
 
 fields(tenant_req) ->
-    delete([created_at, updated_at], fields(tenant));
-fields(tenant) ->
+    delete([created_at, updated_at], fields(tenant_resp));
+fields(tenant_resp) ->
     [
         {id,
             ?HOCON(
@@ -173,7 +173,23 @@ fields(tenant) ->
                 desc => "Description of the tenant",
                 required => false,
                 example => "This is a tenant for emqx"
-            })}
+            })},
+        {created_at,
+            hoconsc:mk(
+                emqx_datetime:epoch_second(),
+                #{
+                    desc => "tentant create datetime",
+                    example => <<"2022-12-01T00:00:00.000Z">>
+                }
+            )},
+        {updated_at,
+            hoconsc:mk(
+                emqx_datetime:epoch_second(),
+                #{
+                    desc => "tentant update datetime",
+                    example => <<"2022-12-01T00:00:00.000Z">>
+                }
+            )}
     ];
 fields(id) ->
     [
