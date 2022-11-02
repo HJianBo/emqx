@@ -83,6 +83,10 @@ is_jq_supported() ->
         is_win32()) orelse
         "1" == os:getenv("BUILD_WITH_JQ").
 
+is_tenancy_supported() ->
+    not (false =/= os:getenv("BUILD_WITHOUT_TENANCY")) orelse
+        "1" == os:getenv("BUILD_WITH_TENANCY").
+
 is_quicer_supported() ->
     not (false =/= os:getenv("BUILD_WITHOUT_QUIC") orelse
         is_macos() orelse
@@ -397,6 +401,7 @@ relx_apps(ReleaseType, Edition) ->
         [quicer || is_quicer_supported()] ++
         [bcrypt || provide_bcrypt_release(ReleaseType)] ++
         [jq || is_jq_supported()] ++
+        [emqx_tenancy || is_tenancy_supported()] ++
         [{observer, load} || is_app(observer)] ++
         relx_apps_per_edition(Edition).
 

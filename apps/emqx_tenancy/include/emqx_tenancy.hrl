@@ -17,8 +17,19 @@
 -ifndef(EMQX_TENANCY_HRL).
 -define(EMQX_TENANCY_HRL, true).
 
--record(tenancy, {sni, name, quotas}).
+-include_lib("emqx/include/emqx.hrl").
 
--record(tenancy_usage, {sni, usage}).
+-record(tenant, {
+    id :: binary(),
+    quota :: map(),
+    status :: enabled | disabled,
+    desc :: binary(),
+    created_at :: integer(),
+    updated_at :: integer()
+}).
+
+-record(tenant_usage, {sni, usage}).
+
+-define(TENANCY, emqx_tenancy).
 
 -endif.
