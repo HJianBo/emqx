@@ -28,6 +28,7 @@
 -export([delete/1, do_delete/1]).
 -export([format/1]).
 
+-spec mnesia(boot) -> ok.
 mnesia(boot) ->
     ok = mria:create_table(?TENANCY, [
         {type, set},
@@ -37,32 +38,37 @@ mnesia(boot) ->
         {attributes, record_info(fields, tenant)}
     ]).
 
+-spec create(map()) -> {ok, map()} | {error, any()}.
 create(Tenant) ->
     Now = now_second(),
-    New = (to_tenant(Tenant))#tenant{created_at = Now, updated_at = Now},
-    trans(fun ?MODULE:do_create/1, [New]).
+    Tenant1 = to_tenant(Tenant),
+    Tenant2 = Tenant1#tenant{created_at = Now, updated_at = Now},
+    trans(fun ?MODULE:do_create/1, [Tenant2]).
 
+-spec read(tenant_id()) -> {ok, map()} | {error, any()}.
 read(Id) ->
     trans(fun ?MODULE:do_read/1, [Id]).
 
+-spec update(tenant_id(), map()) -> {ok, map()} | {error, any()}.
 update(Id, Changed) ->
     case to_tenant(Changed) of
         #tenant{id = Id} = Tenant -> trans(fun ?MODULE:do_update/1, [Tenant]);
         _ -> {error, invalid_tenant}
     end.
 
+-spec delete(tenant_id()) -> ok.
 delete(Id) ->
     trans(fun ?MODULE:do_delete/1, [Id]).
 
 trans(Fun, Args) ->
     case mria:transaction(?COMMON_SHARD, Fun, Args) of
-        {atomic, Res = #tenant{}} -> {ok, format(Res)};
         {atomic, ok} -> ok;
+        {atomic, Res = #tenant{}} -> {ok, format(Res)};
         {aborted, Error} -> {error, Error}
     end.
 
 do_create(Tenant = #tenant{id = Id}) ->
-    case mnesia:read(?TENANCY, Id) of
+    case mnesia:read(?TENANCY, Id, read) of
         [_] ->
             mnesia:abort(already_existed);
         [] ->
@@ -71,13 +77,13 @@ do_create(Tenant = #tenant{id = Id}) ->
     end.
 
 do_read(Id) ->
-    case mnesia:read(?TENANCY, Id) of
+    case mnesia:read(?TENANCY, Id, read) of
         [] -> mnesia:abort(not_found);
         [Tenant] -> Tenant
     end.
 
 do_update(Tenant = #tenant{id = Id}) ->
-    case mnesia:read(?TENANCY, Id) of
+    case mnesia:read(?TENANCY, Id, write) of
         [] ->
             mnesia:abort(not_found);
         [#tenant{created_at = CreatedAt}] ->
@@ -103,10 +109,13 @@ format(#tenant{
         id => Id,
         quota => Quota,
         status => Status,
-        updated_at => list_to_binary(calendar:system_time_to_rfc3339(UpdatedAt)),
-        created_at => list_to_binary(calendar:system_time_to_rfc3339(CreatedAt)),
+        created_at => to_rfc3339(CreatedAt),
+        updated_at => to_rfc3339(UpdatedAt),
         desc => Desc
     }.
+
+to_rfc3339(Second) ->
+    list_to_binary(calendar:system_time_to_rfc3339(Second)).
 
 to_tenant(Tenant) ->
     #{

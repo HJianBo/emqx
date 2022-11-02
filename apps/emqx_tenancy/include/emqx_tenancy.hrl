@@ -19,8 +19,10 @@
 
 -include_lib("emqx/include/emqx.hrl").
 
+-type tenant_id() :: binary().
+
 -record(tenant, {
-    id :: binary(),
+    id :: tenant_id(),
     quota :: map(),
     status :: enabled | disabled,
     desc :: binary(),
