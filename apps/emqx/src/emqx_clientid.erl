@@ -16,7 +16,9 @@
 
 -module(emqx_clientid).
 
--export([with_tenant/2, without_tenant/1, parse/1]).
+-include("emqx.hrl").
+
+-export([with_tenant/2, without_tenant/1]).
 
 -export([update_tenant/2, update_clientid/2, is_undefined_clientid/1]).
 
@@ -37,7 +39,7 @@
 -spec with_tenant(emqx_types:tenant(), clientid()) -> grouped_clientid().
 with_tenant(Tenant, ClientId) when ?IS_TENANT(Tenant), ?IS_NORMAL_ID(ClientId) ->
     {Tenant, ClientId};
-with_tenant(undefined, ClientId) when ?IS_NORMAL_ID(ClientId) ->
+with_tenant(?NO_TENANT, ClientId) when ?IS_NORMAL_ID(ClientId) ->
     ClientId;
 with_tenant(_, _) ->
     error(badarg).
@@ -50,18 +52,10 @@ without_tenant(ClientId) when ?IS_NORMAL_ID(ClientId) ->
 without_tenant(_) ->
     error(badarg).
 
--spec parse(grouped_clientid()) -> {emqx_types:tenant(), clientid()}.
-parse({Tenant, ClientId}) ->
-    {Tenant, ClientId};
-parse(ClientId) when ?IS_NORMAL_ID(ClientId) ->
-    {undefined, ClientId};
-parse(_) ->
-    error(badarg).
-
 -spec update_tenant(emqx_types:tenant(), grouped_clientid()) -> grouped_clientid().
-update_tenant(undefined, ClientId) when ?IS_NORMAL_ID(ClientId) ->
+update_tenant(?NO_TENANT, ClientId) when ?IS_NORMAL_ID(ClientId) ->
     ClientId;
-update_tenant(undefined, {_, ClientId}) ->
+update_tenant(?NO_TENANT, {_, ClientId}) ->
     ClientId;
 update_tenant(Tenant, _GroupedClientId = {_, ClientId}) ->
     {Tenant, ClientId};

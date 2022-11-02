@@ -106,6 +106,8 @@
 -spec mnesia(boot | copy) -> ok.
 mnesia(boot) ->
     ok = mria:create_table(?TAB, [
+        %% XXX: Uncomment it on 5.1
+        %%{type, ordered_set},
         {rlog_shard, ?AUTH_SHARD},
         {storage, disc_copies},
         {record_name, user_info},
