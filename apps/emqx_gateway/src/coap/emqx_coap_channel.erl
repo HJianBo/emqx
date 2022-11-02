@@ -45,8 +45,9 @@
 
 -export_type([channel/0]).
 
--include_lib("emqx/include/logger.hrl").
 -include("src/coap/include/emqx_coap.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_authentication.hrl").
 
 -define(AUTHN, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM).
@@ -141,7 +142,7 @@ init(
         Peercert,
         #{
             zone => default,
-            tenant => undefined,
+            tenant => ?NO_TENANT,
             listener => ListenerId,
             protocol => 'coap',
             peerhost => PeerHost,

@@ -28,17 +28,25 @@
 -define(ACL_TABLE_ALL, 0).
 -define(ACL_TABLE_USERNAME, 1).
 -define(ACL_TABLE_CLIENTID, 2).
+-define(NAME_TO_LABLE(N),
+    case N of
+        all -> 0;
+        username -> 1;
+        clientid -> 2
+    end
+).
 
+-type all() :: {all, emqx_types:tenant()}.
 -type username() :: {username, emqx_types:tenant(), binary()}.
 -type clientid() :: {clientid, emqx_types:tenant(), binary()}.
--type who() :: username() | clientid() | all.
+-type who() :: username() | clientid() | all().
 
 -type rule() :: {emqx_authz_rule:permission(), emqx_authz_rule:action(), emqx_topic:topic()}.
 -type rules() :: [rule()].
 
 -record(emqx_acl, {
     who ::
-        ?ACL_TABLE_ALL
+        {?ACL_TABLE_ALL, emqx_types:tenant()}
         | {?ACL_TABLE_USERNAME, emqx_types:tenant(), binary()}
         | {?ACL_TABLE_CLIENTID, emqx_types:tenant(), binary()},
     rules :: rules()
@@ -61,10 +69,11 @@
     init_tables/0,
     store_rules/2,
     purge_rules/0,
-    get_rules/1,
+    lookup_rules/1,
     delete_rules/1,
-    list_clientid_rules/1,
     list_username_rules/1,
+    list_clientid_rules/1,
+    list_all_rules/1,
     record_count/0
 ]).
 
@@ -144,8 +153,8 @@ store_rules({clientid, Tenant, Clientid}, Rules) ->
         who = {?ACL_TABLE_CLIENTID, Tenant, Clientid}, rules = normalize_rules(Rules)
     },
     mria:dirty_write(Record);
-store_rules(all, Rules) ->
-    Record = #emqx_acl{who = ?ACL_TABLE_ALL, rules = normalize_rules(Rules)},
+store_rules({all, Tenant}, Rules) ->
+    Record = #emqx_acl{who = {?ACL_TABLE_ALL, Tenant}, rules = normalize_rules(Rules)},
     mria:dirty_write(Record).
 
 %% @doc Clean all authz rules for (username & clientid & all)
@@ -159,13 +168,13 @@ purge_rules() ->
     ).
 
 %% @doc Get one record
--spec get_rules(who()) -> {ok, rules()} | not_found.
-get_rules({username, Tenant, Username}) ->
-    do_get_rules({?ACL_TABLE_USERNAME, Tenant, Username});
-get_rules({clientid, Tenant, Clientid}) ->
-    do_get_rules({?ACL_TABLE_CLIENTID, Tenant, Clientid});
-get_rules(all) ->
-    do_get_rules(?ACL_TABLE_ALL).
+-spec lookup_rules(who()) -> {ok, rules()} | not_found.
+lookup_rules({username, Tenant, Username}) ->
+    do_lookup_rules({?ACL_TABLE_USERNAME, Tenant, Username});
+lookup_rules({clientid, Tenant, Clientid}) ->
+    do_lookup_rules({?ACL_TABLE_CLIENTID, Tenant, Clientid});
+lookup_rules({all, Tenant}) ->
+    do_lookup_rules({?ACL_TABLE_ALL, Tenant}).
 
 %% @doc Delete one record
 -spec delete_rules(who()) -> ok.
@@ -173,10 +182,16 @@ delete_rules({username, Tenant, Username}) ->
     mria:dirty_delete(?ACL_TABLE, {?ACL_TABLE_USERNAME, Tenant, Username});
 delete_rules({clientid, Tenant, Clientid}) ->
     mria:dirty_delete(?ACL_TABLE, {?ACL_TABLE_CLIENTID, Tenant, Clientid});
-delete_rules(all) ->
-    mria:dirty_delete(?ACL_TABLE, ?ACL_TABLE_ALL).
+delete_rules({all, Tenant}) ->
+    mria:dirty_delete(?ACL_TABLE, {?ACL_TABLE_ALL, Tenant}).
 
--spec list_username_rules(emqx_types:tenant()) -> ets:match_spec().
+-spec list_username_rules(emqx_types:tenant() | undefined) -> ets:match_spec().
+list_username_rules(undefined) ->
+    ets:fun2ms(
+        fun(#emqx_acl{who = {?ACL_TABLE_USERNAME, '_', Username}, rules = Rules}) ->
+            [{username, Username}, {rules, Rules}]
+        end
+    );
 list_username_rules(Tenant0) ->
     ets:fun2ms(
         fun(#emqx_acl{who = {?ACL_TABLE_USERNAME, Tenant, Username}, rules = Rules}) when
@@ -186,13 +201,35 @@ list_username_rules(Tenant0) ->
         end
     ).
 
--spec list_clientid_rules(emqx_types:tenant()) -> ets:match_spec().
+-spec list_clientid_rules(emqx_types:tenant() | undefined) -> ets:match_spec().
+list_clientid_rules(undefined) ->
+    ets:fun2ms(
+        fun(#emqx_acl{who = {?ACL_TABLE_CLIENTID, '_', Clientid}, rules = Rules}) ->
+            [{clientid, Clientid}, {rules, Rules}]
+        end
+    );
 list_clientid_rules(Tenant0) ->
     ets:fun2ms(
         fun(#emqx_acl{who = {?ACL_TABLE_CLIENTID, Tenant, Clientid}, rules = Rules}) when
             Tenant =:= Tenant0
         ->
             [{clientid, Clientid}, {rules, Rules}]
+        end
+    ).
+
+-spec list_all_rules(emqx_types:tenant() | undefined) -> ets:match_spec().
+list_all_rules(undefined) ->
+    ets:fun2ms(
+        fun(#emqx_acl{who = {?ACL_TABLE_ALL, '_'}, rules = Rules}) ->
+            Rules
+        end
+    );
+list_all_rules(Tenant0) ->
+    ets:fun2ms(
+        fun(#emqx_acl{who = {?ACL_TABLE_ALL, Tenant}, rules = Rules}) when
+            Tenant =:= Tenant0
+        ->
+            Rules
         end
     ).
 
@@ -225,7 +262,7 @@ normalize_permission(allow) -> allow;
 normalize_permission(deny) -> deny;
 normalize_permission(Permission) -> error({invalid_rule_permission, Permission}).
 
-do_get_rules(Key) ->
+do_lookup_rules(Key) ->
     case mnesia:dirty_read(?ACL_TABLE, Key) of
         [#emqx_acl{rules = Rules}] -> {ok, Rules};
         [] -> not_found

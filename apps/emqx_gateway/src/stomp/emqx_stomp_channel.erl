@@ -132,7 +132,7 @@ init(
         Peercert,
         #{
             zone => default,
-            tenant => undefined,
+            tenant => ?NO_TENANT,
             listener => ListenerId,
             protocol => stomp,
             peerhost => PeerHost,

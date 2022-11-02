@@ -572,9 +572,6 @@ fields(unsubscribe) ->
 %%%==============================================================================================
 %% parameters trans
 
-%% TODO: Tenant support
-%% 1. only list tenant's clients
-%% 2. ...
 clients(get, #{query_string := QString}) ->
     list_clients(QString).
 
@@ -681,7 +678,7 @@ list_clients(QString) ->
 lookup(#{clientid := ClientID}) ->
     %% TODO: use real tenant id
     GroupedClientId = emqx_clientid:with_tenant(
-        undefined,
+        ?NO_TENANT,
         ClientID
     ),
     case emqx_mgmt:lookup_client({clientid, GroupedClientId}, ?FORMAT_FUN) of
@@ -694,7 +691,7 @@ lookup(#{clientid := ClientID}) ->
 kickout(#{clientid := ClientID}) ->
     %% TODO: use real tenant id
     GroupedClientId = emqx_clientid:with_tenant(
-        undefined,
+        ?NO_TENANT,
         ClientID
     ),
     case emqx_mgmt:kickout_client({GroupedClientId, ?FORMAT_FUN}) of
@@ -707,7 +704,7 @@ kickout(#{clientid := ClientID}) ->
 get_authz_cache(#{clientid := ClientID}) ->
     %% TODO: use real tenant id
     GroupedClientId = emqx_clientid:with_tenant(
-        undefined,
+        ?NO_TENANT,
         ClientID
     ),
     case emqx_mgmt:list_authz_cache(GroupedClientId) of
@@ -724,7 +721,7 @@ get_authz_cache(#{clientid := ClientID}) ->
 clean_authz_cache(#{clientid := ClientID}) ->
     %% TODO: use real tenant id
     GroupedClientId = emqx_clientid:with_tenant(
-        undefined,
+        ?NO_TENANT,
         ClientID
     ),
     case emqx_mgmt:clean_authz_cache(GroupedClientId) of
@@ -741,7 +738,7 @@ subscribe(#{clientid := ClientID, topic := Topic} = Sub) ->
     Opts = maps:with([qos, nl, rap, rh], Sub),
     %% TODO: use real tenant id
     GroupedClientId = emqx_clientid:with_tenant(
-        undefined,
+        ?NO_TENANT,
         ClientID
     ),
     case do_subscribe(GroupedClientId, Topic, Opts) of

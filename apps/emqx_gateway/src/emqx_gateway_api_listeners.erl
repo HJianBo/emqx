@@ -19,6 +19,7 @@
 -behaviour(minirest_api).
 
 -include("emqx_gateway_http.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
 
@@ -207,7 +208,7 @@ users(post, #{
         Name0,
         Id,
         fun(_GwName, #{id := AuthId, chain_name := ChainName}) ->
-            emqx_authn_api:add_user(ChainName, AuthId, undefined, Body)
+            emqx_authn_api:add_user(ChainName, AuthId, ?NO_TENANT, Body)
         end
     ).
 
@@ -216,7 +217,7 @@ users_insta(get, #{bindings := #{name := Name0, id := Id, uid := UserId}}) ->
         Name0,
         Id,
         fun(_GwName, #{id := AuthId, chain_name := ChainName}) ->
-            emqx_authn_api:find_user(ChainName, AuthId, undefined, UserId)
+            emqx_authn_api:find_user(ChainName, AuthId, ?NO_TENANT, UserId)
         end
     );
 users_insta(put, #{
@@ -227,7 +228,7 @@ users_insta(put, #{
         Name0,
         Id,
         fun(_GwName, #{id := AuthId, chain_name := ChainName}) ->
-            emqx_authn_api:update_user(ChainName, AuthId, undefined, UserId, Body)
+            emqx_authn_api:update_user(ChainName, AuthId, ?NO_TENANT, UserId, Body)
         end
     );
 users_insta(delete, #{bindings := #{name := Name0, id := Id, uid := UserId}}) ->
@@ -235,7 +236,7 @@ users_insta(delete, #{bindings := #{name := Name0, id := Id, uid := UserId}}) ->
         Name0,
         Id,
         fun(_GwName, #{id := AuthId, chain_name := ChainName}) ->
-            emqx_authn_api:delete_user(ChainName, AuthId, undefined, UserId)
+            emqx_authn_api:delete_user(ChainName, AuthId, ?NO_TENANT, UserId)
         end
     ).
 

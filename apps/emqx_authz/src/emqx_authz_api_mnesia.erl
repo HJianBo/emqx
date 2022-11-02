@@ -19,6 +19,7 @@
 -behaviour(minirest_api).
 
 -include("emqx_authz.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
@@ -408,8 +409,7 @@ fields(rules) ->
 %%--------------------------------------------------------------------
 
 users(get, Req = #{query_string := QueryString0}) ->
-    Tenant = tenant(Req),
-    %% XXX: force set tenant params
+    Tenant = tenant(Req, undefined),
     QueryString = QueryString0#{<<"tenant">> => Tenant},
     case
         emqx_mgmt_api:node_query(
@@ -447,8 +447,7 @@ users(post, Req = #{body := Body}) when is_list(Body) ->
     end.
 
 clients(get, Req = #{query_string := QueryString0}) ->
-    Tenant = tenant(Req),
-    %% XXX: force set tenant params
+    Tenant = tenant(Req, undefined),
     QueryString = QueryString0#{<<"tenant">> => Tenant},
     case
         emqx_mgmt_api:node_query(
@@ -487,7 +486,7 @@ clients(post, Req = #{body := Body}) when is_list(Body) ->
 
 user(get, Req = #{bindings := #{username := Username}}) ->
     Tenant = tenant(Req),
-    case emqx_authz_mnesia:get_rules({username, Tenant, Username}) of
+    case emqx_authz_mnesia:lookup_rules({username, Tenant, Username}) of
         not_found ->
             {404, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}};
         {ok, Rules} ->
@@ -515,7 +514,7 @@ user(
     {204};
 user(delete, Req = #{bindings := #{username := Username}}) ->
     Tenant = tenant(Req),
-    case emqx_authz_mnesia:get_rules({username, Tenant, Username}) of
+    case emqx_authz_mnesia:lookup_rules({username, Tenant, Username}) of
         not_found ->
             {404, #{code => <<"NOT_FOUND">>, message => <<"Username Not Found">>}};
         {ok, _Rules} ->
@@ -525,7 +524,7 @@ user(delete, Req = #{bindings := #{username := Username}}) ->
 
 client(get, Req = #{bindings := #{clientid := ClientID}}) ->
     Tenant = tenant(Req),
-    case emqx_authz_mnesia:get_rules({clientid, Tenant, ClientID}) of
+    case emqx_authz_mnesia:lookup_rules({clientid, Tenant, ClientID}) of
         not_found ->
             {404, #{code => <<"NOT_FOUND">>, message => <<"Not Found">>}};
         {ok, Rules} ->
@@ -553,7 +552,7 @@ client(
     {204};
 client(delete, Req = #{bindings := #{clientid := ClientID}}) ->
     Tenant = tenant(Req),
-    case emqx_authz_mnesia:get_rules({clientid, Tenant, ClientID}) of
+    case emqx_authz_mnesia:lookup_rules({clientid, Tenant, ClientID}) of
         not_found ->
             {404, #{code => <<"NOT_FOUND">>, message => <<"ClientID Not Found">>}};
         {ok, _Rules} ->
@@ -561,24 +560,24 @@ client(delete, Req = #{bindings := #{clientid := ClientID}}) ->
             {204}
     end.
 
-all(get, _) ->
-    case emqx_authz_mnesia:get_rules(all) of
-        not_found ->
-            {200, #{rules => []}};
-        {ok, Rules} ->
-            {200, #{
-                rules => [
-                    #{
-                        topic => Topic,
-                        action => Action,
-                        permission => Permission
-                    }
-                 || {Permission, Action, Topic} <- Rules
-                ]
-            }}
-    end;
-all(post, #{body := #{<<"rules">> := Rules}}) ->
-    emqx_authz_mnesia:store_rules(all, format_rules(Rules)),
+all(get, Req) ->
+    Tenant = tenant(Req, undefined),
+    Ms = emqx_authz_mnesia:list_all_rules(Tenant),
+    Rules = ets:select(?ACL_TABLE, Ms),
+    {200, #{
+        rules =>
+            [
+                #{
+                    topic => Topic,
+                    action => Action,
+                    permission => Permission
+                }
+             || {Permission, Action, Topic} <- lists:append(Rules)
+            ]
+    }};
+all(post, Req = #{body := #{<<"rules">> := Rules}}) ->
+    Tenant = tenant(Req),
+    emqx_authz_mnesia:store_rules({all, Tenant}, format_rules(Rules)),
     {204}.
 
 purge(delete, _) ->
@@ -769,7 +768,7 @@ rules_example({ExampleName, ExampleType}) ->
 ensure_all_not_exists(Tenant, Key, Type, Cfgs) ->
     lists:foldl(
         fun(#{Key := Id}, Acc) ->
-            case emqx_authz_mnesia:get_rules({Type, Tenant, Id}) of
+            case emqx_authz_mnesia:lookup_rules({Type, Tenant, Id}) of
                 not_found ->
                     Acc;
                 _ ->
@@ -792,5 +791,7 @@ binjoin([], Acc) ->
 
 binfmt(Fmt, Args) -> iolist_to_binary(io_lib:format(Fmt, Args)).
 
-tenant(_Req = #{headers := Headers}) ->
-    maps:get(<<"emqx-tenant-id">>, Headers, undefined).
+tenant(Req) ->
+    tenant(Req, ?NO_TENANT).
+tenant(_Req = #{headers := Headers}, Default) ->
+    maps:get(<<"emqx-tenant-id">>, Headers, Default).

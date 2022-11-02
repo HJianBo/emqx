@@ -16,9 +16,10 @@
 
 -module(emqx_lwm2m_channel).
 
--include_lib("emqx/include/logger.hrl").
 -include("src/coap/include/emqx_coap.hrl").
 -include("src/lwm2m/include/emqx_lwm2m.hrl").
+-include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 %% API
 -export([
@@ -133,7 +134,7 @@ init(
         Peercert,
         #{
             zone => default,
-            tenant => undefined,
+            tenant => ?NO_TENANT,
             listener => ListenerId,
             protocol => lwm2m,
             peerhost => PeerHost,

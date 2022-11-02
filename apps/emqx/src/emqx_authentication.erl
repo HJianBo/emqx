@@ -215,7 +215,10 @@ when
     {ok, Users}
     | {error, term()}
 when
-    Tenant :: emqx_types:tenant(), QueryString :: map(), State :: state(), Users :: [user_info()].
+    Tenant :: emqx_types:tenant() | undefined,
+    QueryString :: map(),
+    State :: state(),
+    Users :: [user_info()].
 
 -optional_callbacks([
     import_users/2,
@@ -443,7 +446,7 @@ update_user(ChainName, AuthenticatorID, Tenant, UserID, NewUserInfo) ->
 lookup_user(ChainName, AuthenticatorID, Tenant, UserID) ->
     call({lookup_user, ChainName, AuthenticatorID, Tenant, UserID}).
 
--spec list_users(chain_name(), authenticator_id(), emqx_types:tenant(), map()) ->
+-spec list_users(chain_name(), authenticator_id(), emqx_types:tenant() | undefined, map()) ->
     {ok, [user_info()]} | {error, term()}.
 list_users(ChainName, AuthenticatorID, Tenant, FuzzyParams) ->
     call({list_users, ChainName, AuthenticatorID, Tenant, FuzzyParams}).

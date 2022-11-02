@@ -50,8 +50,7 @@
 
 -export([
     query/4,
-    format_user_info/1,
-    group_match_spec/1
+    format_user_info/1
 ]).
 
 %% Internal exports (RPC)
@@ -88,6 +87,16 @@
     {<<"is_superuser">>, atom}
 ]).
 -define(QUERY_FUN, {?MODULE, query}).
+
+-dialyzer(
+    {nowarn_function, [
+        qs2ms/1,
+        do_destroy/1,
+        query/4,
+        fuzzy_filter_fun/1,
+        run_fuzzy_filter/2
+    ]}
+).
 
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -196,7 +205,7 @@ do_destroy(UserGroup) ->
         fun(User) ->
             mnesia:delete_object(?TAB, User, write)
         end,
-        mnesia:select(?TAB, group_match_spec(UserGroup), write)
+        mnesia:select(?TAB, qs2ms([{user_group, '=:=', UserGroup}]), write)
     ).
 
 import_users({Filename0, FileData}, State) ->
@@ -300,7 +309,7 @@ list_users(Tenant, QueryString, #{user_group := UserGroup}) ->
 %% Query Functions
 
 query(Tab, {QString, []}, Continuation, Limit) ->
-    Ms = ms_from_qstring(QString),
+    Ms = qs2ms(QString),
     emqx_mgmt_api:select_table_with_count(
         Tab,
         Ms,
@@ -309,7 +318,7 @@ query(Tab, {QString, []}, Continuation, Limit) ->
         fun format_user_info/1
     );
 query(Tab, {QString, FuzzyQString}, Continuation, Limit) ->
-    Ms = ms_from_qstring(QString),
+    Ms = qs2ms(QString),
     FuzzyFilterFun = fuzzy_filter_fun(FuzzyQString),
     emqx_mgmt_api:select_table_with_count(
         Tab,
@@ -465,38 +474,43 @@ to_binary(L) when is_list(L) ->
 format_user_info(#user_info{user_id = {_, _, UserID}, is_superuser = IsSuperuser}) ->
     #{user_id => UserID, is_superuser => IsSuperuser}.
 
-ms_from_qstring(QString) ->
-    %% assert, the user_group and tenant must be provided
-    {value, {user_group, '=:=', UserGroup}, QString1} = lists:keytake(user_group, 1, QString),
-    {value, {tenant, '=:=', Tenant}, QString2} = lists:keytake(tenant, 1, QString1),
-    group_match_spec(UserGroup, Tenant, QString2).
-
-group_match_spec(UserGroup) ->
-    ets:fun2ms(
-        fun(#user_info{user_id = {Group, _, _}} = User) when Group =:= UserGroup ->
-            User
-        end
-    ).
-
-group_match_spec(UserGroup, Tenant, QString) ->
-    case lists:keyfind(is_superuser, 1, QString) of
-        false ->
-            ets:fun2ms(
-                fun(#user_info{user_id = {Group, Tenant0, _}} = User) when
-                    Group =:= UserGroup, Tenant0 =:= Tenant
-                ->
-                    User
-                end
-            );
-        {is_superuser, '=:=', Value} ->
-            ets:fun2ms(
-                fun(#user_info{user_id = {Group, Tenant0, _}, is_superuser = IsSuper} = User) when
-                    Group =:= UserGroup, Tenant0 =:= Tenant, IsSuper =:= Value
-                ->
-                    User
-                end
-            )
-    end.
+qs2ms(Qs) when is_list(Qs) ->
+    [{Mh0, Conds0, Return}] = ets:fun2ms(fun(User = #user_info{}) -> User end),
+    %% assert
+    true = lists:all(fun({_, '=:=', _}) -> true end, Qs),
+    %% assemble match spec head and conditions
+    QsMap = maps:from_list(
+        lists:filtermap(
+            fun
+                ({K, _, V}) ->
+                    {true, {K, V}};
+                (_) ->
+                    false
+            end,
+            Qs
+        )
+    ),
+    {Mh, Conds} =
+        case QsMap of
+            %% query `undefined` tenant means all tenants
+            #{user_group := Group, tenant := Tenant} when Tenant =/= undefined ->
+                {Mh0#user_info{user_id = {'$1', '$2', '_'}}, [
+                    {'=:=', '$1', Group},
+                    {'=:=', '$2', Tenant}
+                    | Conds0
+                ]};
+            #{user_group := Group} ->
+                {Mh0#user_info{user_id = {'$1', '_', '_'}}, [{'=:=', '$1', Group}]}
+        end,
+    {Mh1, Conds1} =
+        case QsMap of
+            #{is_superuser := IsSup} ->
+                {Mh#user_info{is_superuser = '$3'}, [{'=:=', '$3', IsSup} | Conds]};
+            _ ->
+                {Mh, Conds}
+        end,
+    %% TODO: compatible the old user id schema?
+    [{Mh1, Conds1, Return}].
 
 csv_data(Data) ->
     Lines = binary:split(Data, [<<"\r">>, <<"\n">>], [global, trim_all]),

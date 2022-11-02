@@ -19,6 +19,7 @@
 -behaviour(minirest_api).
 
 -include("emqx_authn.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("emqx/include/emqx_placeholder.hrl").
 -include_lib("emqx/include/emqx_authentication.hrl").
@@ -690,7 +691,8 @@ authenticator_users(post, Req = #{bindings := #{id := AuthenticatorID}, body := 
 authenticator_users(
     get, Req = #{bindings := #{id := AuthenticatorID}, query_string := QueryString}
 ) ->
-    Tenant = tenant(Req),
+    %% In lists APIs, undefiend tenant means query all
+    Tenant = tenant(Req, undefined),
     list_users(?GLOBAL, AuthenticatorID, Tenant, QueryString).
 
 authenticator_user(
@@ -739,7 +741,7 @@ listener_authenticator_users(
         query_string := PageParams
     }
 ) ->
-    Tenant = tenant(Req),
+    Tenant = tenant(Req, undefined),
     with_chain(
         ListenerID,
         fun(ChainName) ->
@@ -1303,8 +1305,11 @@ paginated_list_type(Type) ->
         {meta, ref(emqx_dashboard_swagger, meta)}
     ].
 
-tenant(_Req = #{headers := Headers}) ->
-    maps:get(<<"emqx-tenant-id">>, Headers, undefined).
+tenant(Req) ->
+    tenant(Req, ?NO_TENANT).
+
+tenant(_Req = #{headers := Headers}, Default) ->
+    maps:get(<<"emqx-tenant-id">>, Headers, Default).
 
 authenticator_array_example() ->
     [Config || #{value := Config} <- maps:values(authenticator_examples())].
