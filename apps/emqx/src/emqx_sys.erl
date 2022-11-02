@@ -268,6 +268,7 @@ reason(_) -> internal_error.
 
 on_client_subscribed(
     _ClientInfo = #{
+        tenant := Tenant,
         clientid := GroupedClientId,
         username := Username,
         protocol := Protocol
@@ -275,7 +276,7 @@ on_client_subscribed(
     Topic,
     SubOpts
 ) ->
-    {Tenant, ClientId} = emqx_clientid:parse(GroupedClientId),
+    ClientId = emqx_clientid:without_tenant(GroupedClientId),
     Payload = #{
         tenant => Tenant,
         clientid => ClientId,
@@ -289,6 +290,7 @@ on_client_subscribed(
 
 on_client_unsubscribed(
     _ClientInfo = #{
+        tenant := Tenant,
         clientid := GroupedClientId,
         username := Username,
         protocol := Protocol
@@ -296,7 +298,7 @@ on_client_unsubscribed(
     Topic,
     _SubOpts
 ) ->
-    {Tenant, ClientId} = emqx_clientid:parse(GroupedClientId),
+    ClientId = emqx_clientid:without_tenant(GroupedClientId),
     Payload = #{
         tenant => Tenant,
         clientid => ClientId,
@@ -375,6 +377,7 @@ safe_publish(Topic, Flags, Payload) ->
 
 common_infos(
     _ClientInfo = #{
+        tenant := Tenant,
         clientid := GroupedClientId,
         username := Username,
         peerhost := PeerHost,
@@ -387,7 +390,7 @@ common_infos(
         connected_at := ConnectedAt
     }
 ) ->
-    {Tenant, ClientId} = emqx_clientid:parse(GroupedClientId),
+    ClientId = emqx_clientid:without_tenant(GroupedClientId),
     #{
         tenant => Tenant,
         clientid => ClientId,

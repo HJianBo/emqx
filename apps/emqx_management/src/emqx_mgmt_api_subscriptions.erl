@@ -193,7 +193,7 @@ get_topic(Topic, _) ->
     Topic.
 
 subid_to_clientid(SubId) when is_tuple(SubId) ->
-    emqx_clientid:uncomp(SubId).
+    emqx_clientid:without_tenant(SubId).
 
 %%--------------------------------------------------------------------
 %% Query Function

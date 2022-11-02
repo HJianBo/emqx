@@ -1304,7 +1304,7 @@ paginated_list_type(Type) ->
     ].
 
 tenant(_Req = #{headers := Headers}) ->
-    maps:get(<<"emqx_tenant">>, Headers, undefined).
+    maps:get(<<"emqx-tenant-id">>, Headers, undefined).
 
 authenticator_array_example() ->
     [Config || #{value := Config} <- maps:values(authenticator_examples())].

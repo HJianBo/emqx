@@ -793,4 +793,4 @@ binjoin([], Acc) ->
 binfmt(Fmt, Args) -> iolist_to_binary(io_lib:format(Fmt, Args)).
 
 tenant(_Req = #{headers := Headers}) ->
-    maps:get(<<"emqx_tenant">>, Headers, undefined).
+    maps:get(<<"emqx-tenant-id">>, Headers, undefined).

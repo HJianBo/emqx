@@ -164,7 +164,8 @@
     dn => binary(),
     atom() => term()
 }.
--type tenant() :: maybe(binary()).
+%% The default/empty tenant is <<>>
+-type tenant() :: binary().
 -type username() :: maybe(binary()).
 -type password() :: maybe(binary()).
 -type peerhost() :: inet:ip_address().

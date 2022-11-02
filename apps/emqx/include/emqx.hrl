@@ -146,4 +146,9 @@
     authenticators :: [#authenticator{}]
 }).
 
+%%--------------------------------------------------------------------
+%% Tenancy
+
+-define(NO_TENANT, <<>>).
+
 -endif.

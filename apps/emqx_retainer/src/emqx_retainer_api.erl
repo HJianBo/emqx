@@ -207,7 +207,7 @@ format_message(#message{
                 Timestamp, [{unit, millisecond}]
             )
         ),
-        from_clientid => to_bin_string(emqx_clientid:uncomp(From)),
+        from_clientid => to_bin_string(emqx_clientid:without_tenant(From)),
         from_username => maps:get(username, Headers, <<>>)
     }.
 

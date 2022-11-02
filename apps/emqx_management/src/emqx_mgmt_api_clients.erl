@@ -680,7 +680,7 @@ list_clients(QString) ->
 
 lookup(#{clientid := ClientID}) ->
     %% TODO: use real tenant id
-    GroupedClientId = emqx_clientid:comp(
+    GroupedClientId = emqx_clientid:with_tenant(
         undefined,
         ClientID
     ),
@@ -693,7 +693,7 @@ lookup(#{clientid := ClientID}) ->
 
 kickout(#{clientid := ClientID}) ->
     %% TODO: use real tenant id
-    GroupedClientId = emqx_clientid:comp(
+    GroupedClientId = emqx_clientid:with_tenant(
         undefined,
         ClientID
     ),
@@ -706,7 +706,7 @@ kickout(#{clientid := ClientID}) ->
 
 get_authz_cache(#{clientid := ClientID}) ->
     %% TODO: use real tenant id
-    GroupedClientId = emqx_clientid:comp(
+    GroupedClientId = emqx_clientid:with_tenant(
         undefined,
         ClientID
     ),
@@ -723,7 +723,7 @@ get_authz_cache(#{clientid := ClientID}) ->
 
 clean_authz_cache(#{clientid := ClientID}) ->
     %% TODO: use real tenant id
-    GroupedClientId = emqx_clientid:comp(
+    GroupedClientId = emqx_clientid:with_tenant(
         undefined,
         ClientID
     ),
@@ -740,7 +740,7 @@ clean_authz_cache(#{clientid := ClientID}) ->
 subscribe(#{clientid := ClientID, topic := Topic} = Sub) ->
     Opts = maps:with([qos, nl, rap, rh], Sub),
     %% TODO: use real tenant id
-    GroupedClientId = emqx_clientid:comp(
+    GroupedClientId = emqx_clientid:with_tenant(
         undefined,
         ClientID
     ),
@@ -995,8 +995,8 @@ result_format_undefined_to_null(Map) ->
         Map
     ).
 
-uncompound_clientid(ClientInfoMap = #{clientid := GroupedClientId}) ->
-    {Tenant, ClientID} = emqx_clientid:parse(GroupedClientId),
+uncompound_clientid(ClientInfoMap = #{tenant := Tenant, clientid := GroupedClientId}) ->
+    ClientID = emqx_clientid:without_tenant(GroupedClientId),
     ClientInfoMap#{
         tenant => Tenant,
         clientid => ClientID

@@ -72,7 +72,7 @@ replvar(undefined, _Vars) ->
     undefined;
 replvar(MountPoint, Vars) ->
     Tenant = maps:get(tenant, Vars, undefined),
-    ClientID = emqx_clientid:uncomp(maps:get(clientid, Vars, undefined)),
+    ClientID = emqx_clientid:without_tenant(maps:get(clientid, Vars, undefined)),
     UserName = maps:get(username, Vars, undefined),
     EndpointName = maps:get(endpoint_name, Vars, undefined),
     List = [

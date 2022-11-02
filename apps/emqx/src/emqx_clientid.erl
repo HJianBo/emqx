@@ -16,7 +16,7 @@
 
 -module(emqx_clientid).
 
--export([comp/2, uncomp/1, parse/1]).
+-export([with_tenant/2, without_tenant/1, parse/1]).
 
 -export([update_tenant/2, update_clientid/2, is_undefined_clientid/1]).
 
@@ -34,20 +34,20 @@
 %% APIs
 %%--------------------------------------------------------------------
 
--spec comp(emqx_types:tenant(), clientid()) -> grouped_clientid().
-comp(Tenant, ClientId) when ?IS_TENANT(Tenant), ?IS_NORMAL_ID(ClientId) ->
+-spec with_tenant(emqx_types:tenant(), clientid()) -> grouped_clientid().
+with_tenant(Tenant, ClientId) when ?IS_TENANT(Tenant), ?IS_NORMAL_ID(ClientId) ->
     {Tenant, ClientId};
-comp(undefined, ClientId) when ?IS_NORMAL_ID(ClientId) ->
+with_tenant(undefined, ClientId) when ?IS_NORMAL_ID(ClientId) ->
     ClientId;
-comp(_, _) ->
+with_tenant(_, _) ->
     error(badarg).
 
--spec uncomp(grouped_clientid()) -> clientid().
-uncomp({_, ClientId}) ->
+-spec without_tenant(grouped_clientid()) -> clientid().
+without_tenant({_, ClientId}) ->
     ClientId;
-uncomp(ClientId) when ?IS_NORMAL_ID(ClientId) ->
+without_tenant(ClientId) when ?IS_NORMAL_ID(ClientId) ->
     ClientId;
-uncomp(_) ->
+without_tenant(_) ->
     error(badarg).
 
 -spec parse(grouped_clientid()) -> {emqx_types:tenant(), clientid()}.
@@ -95,7 +95,7 @@ is_undefined_clientid(_) -> error(badarg).
 comp_uncomp_test() ->
     ?assertEqual(
         {<<"test_tenant">>, <<"client1">>},
-        comp(<<"test_tenant">>, <<"client1">>)
+        with_tenant(<<"test_tenant">>, <<"client1">>)
     ).
 
 -endif.
