@@ -17,6 +17,7 @@
 -module(emqx_authn_mnesia).
 
 -include("emqx_authn.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
@@ -40,7 +41,7 @@
 ]).
 
 -export([
-    import_users/2,
+    import_users/3,
     add_user/3,
     delete_user/3,
     update_user/4,
@@ -59,8 +60,8 @@
     do_add_user/3,
     do_delete_user/3,
     do_update_user/4,
-    import/2,
-    import_csv/3
+    import/3,
+    import_csv/4
 ]).
 
 -type user_group() :: binary().
@@ -180,7 +181,7 @@ authenticate(
         password_hash_algorithm := Algorithm
     }
 ) ->
-    Tenant = maps:get(tenant, Credential, undefined),
+    Tenant = maps:get(tenant, Credential, ?NO_TENANT),
     UserID = get_user_identity(Credential, Type),
     case mnesia:dirty_read(?TAB, {UserGroup, Tenant, UserID}) of
         [] ->
@@ -210,14 +211,14 @@ do_destroy(UserGroup) ->
         mnesia:select(?TAB, qs2ms([{user_group, '=:=', UserGroup}]), write)
     ).
 
-import_users({Filename0, FileData}, State) ->
+import_users(Tenant, {Filename0, FileData}, State) ->
     Filename = to_binary(Filename0),
     case filename:extension(Filename) of
         <<".json">> ->
-            import_users_from_json(FileData, State);
+            import_users_from_json(Tenant, FileData, State);
         <<".csv">> ->
             CSV = csv_data(FileData),
-            import_users_from_csv(CSV, State);
+            import_users_from_csv(Tenant, CSV, State);
         <<>> ->
             {error, unknown_file_format};
         Extension ->
@@ -355,28 +356,27 @@ run_fuzzy_filter(
 %%------------------------------------------------------------------------------
 
 %% Example: data/user-credentials.json
-import_users_from_json(Bin, #{user_group := UserGroup}) ->
+import_users_from_json(Tenant, Bin, #{user_group := UserGroup}) ->
     case emqx_json:safe_decode(Bin, [return_maps]) of
         {ok, List} ->
-            trans(fun ?MODULE:import/2, [UserGroup, List]);
+            trans(fun ?MODULE:import/3, [UserGroup, Tenant, List]);
         {error, Reason} ->
             {error, Reason}
     end.
 
 %% Example: data/user-credentials.csv
-import_users_from_csv(CSV, #{user_group := UserGroup}) ->
+import_users_from_csv(Tenant, CSV, #{user_group := UserGroup}) ->
     case get_csv_header(CSV) of
         {ok, Seq, NewCSV} ->
-            trans(fun ?MODULE:import_csv/3, [UserGroup, NewCSV, Seq]);
+            trans(fun ?MODULE:import_csv/4, [UserGroup, Tenant, NewCSV, Seq]);
         {error, Reason} ->
             {error, Reason}
     end.
 
-import(_UserGroup, []) ->
+import(_UserGroup, _Tenant, []) ->
     ok;
-import(UserGroup, [
+import(UserGroup, Tenant, [
     #{
-        <<"tenant">> := Tenant,
         <<"user_id">> := UserID,
         <<"password_hash">> := PasswordHash
     } = UserInfo
@@ -387,26 +387,25 @@ import(UserGroup, [
     Salt = maps:get(<<"salt">>, UserInfo, <<>>),
     IsSuperuser = maps:get(<<"is_superuser">>, UserInfo, false),
     insert_user(UserGroup, Tenant, UserID, PasswordHash, Salt, IsSuperuser),
-    import(UserGroup, More);
-import(_UserGroup, [_ | _More]) ->
+    import(UserGroup, Tenant, More);
+import(_UserGroup, _Tenant, [_ | _More]) ->
     {error, bad_format}.
 
 %% Importing 5w users needs 1.7 seconds
-import_csv(UserGroup, CSV, Seq) ->
+import_csv(UserGroup, Tenant, CSV, Seq) ->
     case csv_read_line(CSV) of
         {ok, Line, NewCSV} ->
             Fields = binary:split(Line, [<<",">>, <<" ">>, <<"\n">>], [global, trim_all]),
             case get_user_info_by_seq(Fields, Seq) of
                 {ok,
                     #{
-                        tenant := Tenant,
                         user_id := UserID,
                         password_hash := PasswordHash
                     } = UserInfo} ->
                     Salt = maps:get(salt, UserInfo, <<>>),
                     IsSuperuser = maps:get(is_superuser, UserInfo, false),
                     insert_user(UserGroup, Tenant, UserID, PasswordHash, Salt, IsSuperuser),
-                    import_csv(UserGroup, NewCSV, Seq);
+                    import_csv(UserGroup, Tenant, NewCSV, Seq);
                 {error, Reason} ->
                     {error, Reason}
             end;

@@ -20,7 +20,7 @@
 
 -export([with_tenant/2, without_tenant/1]).
 
--export([update_tenant/2, update_clientid/2, is_undefined_clientid/1]).
+-export([update_clientid/2, is_undefined_clientid/1]).
 
 -type clientid() :: binary() | atom().
 
@@ -36,48 +36,40 @@
 %% APIs
 %%--------------------------------------------------------------------
 
--spec with_tenant(emqx_types:tenant(), clientid()) -> grouped_clientid().
-with_tenant(Tenant, ClientId) when ?IS_TENANT(Tenant), ?IS_NORMAL_ID(ClientId) ->
-    {Tenant, ClientId};
-with_tenant(?NO_TENANT, ClientId) when ?IS_NORMAL_ID(ClientId) ->
-    ClientId;
-with_tenant(_, _) ->
-    error(badarg).
-
 -spec without_tenant(grouped_clientid()) -> clientid().
 without_tenant({_, ClientId}) ->
     ClientId;
 without_tenant(ClientId) when ?IS_NORMAL_ID(ClientId) ->
     ClientId;
-without_tenant(_) ->
-    error(badarg).
+without_tenant(ClientId) ->
+    error(badarg, [ClientId]).
 
--spec update_tenant(emqx_types:tenant(), grouped_clientid()) -> grouped_clientid().
-update_tenant(?NO_TENANT, ClientId) when ?IS_NORMAL_ID(ClientId) ->
+-spec with_tenant(emqx_types:tenant(), grouped_clientid()) -> grouped_clientid().
+with_tenant(?NO_TENANT, ClientId) when ?IS_NORMAL_ID(ClientId) ->
     ClientId;
-update_tenant(?NO_TENANT, {_, ClientId}) ->
+with_tenant(?NO_TENANT, {_, ClientId}) ->
     ClientId;
-update_tenant(Tenant, _GroupedClientId = {_, ClientId}) ->
+with_tenant(Tenant, _GroupedClientId = {_, ClientId}) ->
     {Tenant, ClientId};
-update_tenant(Tenant, ClientId) when ?IS_NORMAL_ID(ClientId) ->
+with_tenant(Tenant, ClientId) when ?IS_NORMAL_ID(ClientId) ->
     {Tenant, ClientId};
-update_tenant(_, _) ->
-    error(badarg).
+with_tenant(Tenant, ClientId) ->
+    error(badarg, [Tenant, ClientId]).
 
 -spec update_clientid(emqx_types:tenant(), grouped_clientid()) -> grouped_clientid().
 update_clientid(Id, _GroupedClientId = {Tenant, _}) ->
     {Tenant, Id};
 update_clientid(Id, ClientId) when ?IS_NORMAL_ID(ClientId) ->
     Id;
-update_clientid(_, _) ->
-    error(badarg).
+update_clientid(Id, ClientId) ->
+    error(badarg, [Id, ClientId]).
 
 -spec is_undefined_clientid(grouped_clientid()) -> boolean().
 is_undefined_clientid(undefined) -> true;
 is_undefined_clientid({_, undefined}) -> true;
 is_undefined_clientid({_, _}) -> false;
 is_undefined_clientid(I) when is_binary(I) -> false;
-is_undefined_clientid(_) -> error(badarg).
+is_undefined_clientid(V) -> error(badarg, [V]).
 
 %%--------------------------------------------------------------------
 %% eunits

@@ -18,6 +18,7 @@
 
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
 -include("emqx_authz.hrl").
@@ -116,7 +117,7 @@ authorize(
     Topic,
     #{type := built_in_database}
 ) ->
-    Tenant = maps:get(tenant, Client, undefined),
+    Tenant = maps:get(tenant, Client, ?NO_TENANT),
     Rules =
         case mnesia:dirty_read(?ACL_TABLE, {?ACL_TABLE_CLIENTID, Tenant, Clientid}) of
             [] -> [];

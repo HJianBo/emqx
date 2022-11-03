@@ -24,6 +24,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 
 -import(emqx_dashboard_swagger, [error_codes/2]).
+-import(emqx_dashboard_utils, [tenant/1]).
 
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(NOT_FOUND, 'NOT_FOUND').
@@ -85,13 +86,14 @@ schema("/listeners/:listener_id/authentication/:id/import_users") ->
 
 authenticator_import_users(
     post,
-    #{
+    Req = #{
         bindings := #{id := AuthenticatorID},
         body := #{<<"filename">> := #{type := _} = File}
     }
 ) ->
+    Tenant = tenant(Req),
     [{FileName, FileData}] = maps:to_list(maps:without([type], File)),
-    case emqx_authentication:import_users(?GLOBAL, AuthenticatorID, {FileName, FileData}) of
+    case emqx_authentication:import_users(?GLOBAL, AuthenticatorID, Tenant, {FileName, FileData}) of
         ok -> {204};
         {error, Reason} -> emqx_authn_api:serialize_error(Reason)
     end;
@@ -100,17 +102,20 @@ authenticator_import_users(post, #{bindings := #{id := _}, body := _}) ->
 
 listener_authenticator_import_users(
     post,
-    #{
+    Req = #{
         bindings := #{listener_id := ListenerID, id := AuthenticatorID},
         body := #{<<"filename">> := #{type := _} = File}
     }
 ) ->
+    Tenant = tenant(Req),
     [{FileName, FileData}] = maps:to_list(maps:without([type], File)),
     emqx_authn_api:with_chain(
         ListenerID,
         fun(ChainName) ->
             case
-                emqx_authentication:import_users(ChainName, AuthenticatorID, {FileName, FileData})
+                emqx_authentication:import_users(
+                    ChainName, AuthenticatorID, Tenant, {FileName, FileData}
+                )
             of
                 ok -> {204};
                 {error, Reason} -> emqx_authn_api:serialize_error(Reason)

@@ -21,6 +21,7 @@
 -include("emqx_gateway_http.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 -include_lib("typerefl/include/types.hrl").
+-include_lib("emqx/include/emqx.hrl").
 
 -import(emqx_dashboard_swagger, [error_codes/2]).
 -import(hoconsc, [mk/2, ref/2]).
@@ -81,7 +82,7 @@ import_users(post, #{
                 [{FileName, FileData}] = maps:to_list(maps:without([type], File)),
                 case
                     emqx_authentication:import_users(
-                        ChainName, AuthId, {FileName, FileData}
+                        ChainName, AuthId, ?NO_TENANT, {FileName, FileData}
                     )
                 of
                     ok -> {204};
@@ -105,7 +106,7 @@ import_listener_users(post, #{
                     [{FileName, FileData}] = maps:to_list(maps:without([type], File)),
                     case
                         emqx_authentication:import_users(
-                            ChainName, AuthId, {FileName, FileData}
+                            ChainName, AuthId, ?NO_TENANT, {FileName, FileData}
                         )
                     of
                         ok -> {204};

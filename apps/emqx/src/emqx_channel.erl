@@ -1585,7 +1585,7 @@ set_tenant(_ConnPkt, ConnInfo, ClientInfo = #{clientid := ClientId}) ->
             Tenant = parse_peersni(maps:get(peersni, ConnInfo, ?NO_TENANT)),
             ClientInfo#{
                 tenant => Tenant,
-                clientid => emqx_clientid:update_tenant(Tenant, ClientId)
+                clientid => emqx_clientid:with_tenant(Tenant, ClientId)
             }
     end.
 

@@ -27,6 +27,7 @@
 
 -import(hoconsc, [mk/2, ref/1, ref/2]).
 -import(emqx_dashboard_swagger, [error_codes/2]).
+-import(emqx_dashboard_utils, [tenant/1, tenant/2]).
 
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(NOT_FOUND, 'NOT_FOUND').
@@ -1304,12 +1305,6 @@ paginated_list_type(Type) ->
         {data, hoconsc:array(Type)},
         {meta, ref(emqx_dashboard_swagger, meta)}
     ].
-
-tenant(Req) ->
-    tenant(Req, ?NO_TENANT).
-
-tenant(_Req = #{headers := Headers}, Default) ->
-    maps:get(<<"emqx-tenant-id">>, Headers, Default).
 
 authenticator_array_example() ->
     [Config || #{value := Config} <- maps:values(authenticator_examples())].

@@ -71,7 +71,7 @@ unmount(MountPoint, Msg = #message{topic = Topic}) ->
 replvar(undefined, _Vars) ->
     undefined;
 replvar(MountPoint, Vars) ->
-    Tenant = maps:get(tenant, Vars, undefined),
+    Tenant = maps:get(tenant, Vars, ?NO_TENANT),
     ClientID = emqx_clientid:without_tenant(maps:get(clientid, Vars, undefined)),
     UserName = maps:get(username, Vars, undefined),
     EndpointName = maps:get(endpoint_name, Vars, undefined),

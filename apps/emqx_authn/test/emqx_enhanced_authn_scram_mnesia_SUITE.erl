@@ -21,6 +21,7 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/emqx_mqtt.hrl").
 -include("emqx_authn.hrl").
 
@@ -302,6 +303,7 @@ t_list_users(_) ->
         data := [?USER_MAP, ?USER_MAP],
         meta := #{page := 1, limit := 2, count := 3}
     } = emqx_enhanced_authn_scram_mnesia:list_users(
+        ?NO_TENANT,
         #{<<"page">> => 1, <<"limit">> => 2},
         State
     ),
@@ -309,6 +311,7 @@ t_list_users(_) ->
         data := [?USER_MAP],
         meta := #{page := 2, limit := 2, count := 3}
     } = emqx_enhanced_authn_scram_mnesia:list_users(
+        ?NO_TENANT,
         #{<<"page">> => 2, <<"limit">> => 2},
         State
     ),
@@ -321,6 +324,7 @@ t_list_users(_) ->
         ],
         meta := #{page := 1, limit := 3, count := 1}
     } = emqx_enhanced_authn_scram_mnesia:list_users(
+        ?NO_TENANT,
         #{
             <<"page">> => 1,
             <<"limit">> => 3,

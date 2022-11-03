@@ -24,6 +24,7 @@
 -include_lib("hocon/include/hoconsc.hrl").
 
 -import(hoconsc, [mk/1, mk/2, ref/1, ref/2, array/1, enum/1]).
+-import(emqx_dashboard_utils, [tenant/1, tenant/2]).
 
 -define(QUERY_USERNAME_FUN, {?MODULE, query_username}).
 -define(QUERY_CLIENTID_FUN, {?MODULE, query_clientid}).
@@ -790,8 +791,3 @@ binjoin([], Acc) ->
     Acc.
 
 binfmt(Fmt, Args) -> iolist_to_binary(io_lib:format(Fmt, Args)).
-
-tenant(Req) ->
-    tenant(Req, ?NO_TENANT).
-tenant(_Req = #{headers := Headers}, Default) ->
-    maps:get(<<"emqx-tenant-id">>, Headers, Default).

@@ -61,7 +61,7 @@
 
 %% APIs for observer built_in_database
 -export([
-    import_users/3,
+    import_users/4,
     add_user/4,
     delete_user/4,
     update_user/5,
@@ -173,11 +173,11 @@ when
 when
     State :: state().
 
--callback import_users({Filename, FileData}, State) ->
+-callback import_users(Tenant, {Filename, FileData}, State) ->
     ok
     | {error, term()}
 when
-    Filename :: binary(), FileData :: binary(), State :: state().
+    Tenant :: emqx_types:tenant(), Filename :: binary(), FileData :: binary(), State :: state().
 
 -callback add_user(Tenant, UserInfo, State) ->
     {ok, User}
@@ -221,7 +221,7 @@ when
     Users :: [user_info()].
 
 -optional_callbacks([
-    import_users/2,
+    import_users/3,
     add_user/3,
     delete_user/3,
     update_user/4,
@@ -420,11 +420,10 @@ list_authenticators(ChainName) ->
 move_authenticator(ChainName, AuthenticatorID, Position) ->
     call({move_authenticator, ChainName, AuthenticatorID, Position}).
 
--spec import_users(chain_name(), authenticator_id(), {binary(), binary()}) ->
+-spec import_users(chain_name(), authenticator_id(), emqx_types:tenant(), {binary(), binary()}) ->
     ok | {error, term()}.
-import_users(ChainName, AuthenticatorID, Filename) ->
-    %% TODO: called by admin only
-    call({import_users, ChainName, AuthenticatorID, Filename}).
+import_users(ChainName, AuthenticatorID, Tenant, Filename) ->
+    call({import_users, ChainName, AuthenticatorID, Tenant, Filename}).
 
 -spec add_user(chain_name(), authenticator_id(), emqx_types:tenant(), user_info()) ->
     {ok, user_info()} | {error, term()}.
@@ -514,8 +513,8 @@ handle_call({move_authenticator, ChainName, AuthenticatorID, Position}, _From, S
     end,
     Reply = with_chain(ChainName, UpdateFun),
     reply(Reply, State);
-handle_call({import_users, ChainName, AuthenticatorID, Filename}, _From, State) ->
-    Reply = call_authenticator(ChainName, AuthenticatorID, import_users, [Filename]),
+handle_call({import_users, ChainName, AuthenticatorID, Tenant, Filename}, _From, State) ->
+    Reply = call_authenticator(ChainName, AuthenticatorID, import_users, [Tenant, Filename]),
     reply(Reply, State);
 handle_call({add_user, ChainName, AuthenticatorID, Tenant, UserInfo}, _From, State) ->
     Reply = call_authenticator(ChainName, AuthenticatorID, add_user, [Tenant, UserInfo]),

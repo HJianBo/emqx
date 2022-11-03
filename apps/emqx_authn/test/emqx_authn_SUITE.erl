@@ -71,6 +71,7 @@ t_will_message_connection_denied({init, Config}) ->
     {ok, _} = emqx_authentication:add_user(
         Chain,
         AuthenticatorID,
+        ?NO_TENANT,
         User
     ),
     Config;
