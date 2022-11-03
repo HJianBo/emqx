@@ -87,7 +87,7 @@ init_per_testcase(TestCase, Config) when
         fun
             (peername, [sock]) -> {ok, {{127, 0, 0, 1}, 3456}};
             (sockname, [sock]) -> {ok, {{127, 0, 0, 1}, 1883}};
-            (peer_sni, [sock]) -> undefined;
+            (peersni, [sock]) -> undefined;
             (peercert, [sock]) -> undefined
         end
     ),

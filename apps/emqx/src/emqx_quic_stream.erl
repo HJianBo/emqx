@@ -30,7 +30,7 @@
     peername/1,
     sockname/1,
     peercert/1,
-    peer_sni/1
+    peersni/1
 ]).
 
 wait({ConnOwner, Conn}) ->
@@ -57,7 +57,7 @@ peercert(_S) ->
     %% @todo but unsupported by msquic
     nossl.
 
-peer_sni(_) ->
+peersni(_) ->
     %% @todo
     undefined.
 

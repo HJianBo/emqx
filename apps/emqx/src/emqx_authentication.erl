@@ -177,25 +177,28 @@ when
     ok
     | {error, term()}
 when
-    Tenant :: emqx_types:tenant(), Filename :: binary(), FileData :: binary(), State :: state().
+    Tenant :: emqx_types:tenant_id(), Filename :: binary(), FileData :: binary(), State :: state().
 
 -callback add_user(Tenant, UserInfo, State) ->
     {ok, User}
     | {error, term()}
 when
-    Tenant :: emqx_types:tenant(), UserInfo :: user_info(), State :: state(), User :: user_info().
+    Tenant :: emqx_types:tenant_id(),
+    UserInfo :: user_info(),
+    State :: state(),
+    User :: user_info().
 
 -callback delete_user(Tenant, UserID, State) ->
     ok
     | {error, term()}
 when
-    Tenant :: emqx_types:tenant(), UserID :: binary(), State :: state().
+    Tenant :: emqx_types:tenant_id(), UserID :: binary(), State :: state().
 
 -callback update_user(Tenant, UserID, UserInfo, State) ->
     {ok, User}
     | {error, term()}
 when
-    Tenant :: emqx_types:tenant(),
+    Tenant :: emqx_types:tenant_id(),
     UserID :: binary(),
     UserInfo :: map(),
     State :: state(),
@@ -205,7 +208,7 @@ when
     {ok, User}
     | {error, term()}
 when
-    Tenant :: emqx_types:tenant(),
+    Tenant :: emqx_types:tenant_id(),
     UserID :: binary(),
     UserInfo :: map(),
     State :: state(),
@@ -215,7 +218,7 @@ when
     {ok, Users}
     | {error, term()}
 when
-    Tenant :: emqx_types:tenant() | undefined,
+    Tenant :: emqx_types:tenant_id() | undefined,
     QueryString :: map(),
     State :: state(),
     Users :: [user_info()].
@@ -420,32 +423,32 @@ list_authenticators(ChainName) ->
 move_authenticator(ChainName, AuthenticatorID, Position) ->
     call({move_authenticator, ChainName, AuthenticatorID, Position}).
 
--spec import_users(chain_name(), authenticator_id(), emqx_types:tenant(), {binary(), binary()}) ->
+-spec import_users(chain_name(), authenticator_id(), emqx_types:tenant_id(), {binary(), binary()}) ->
     ok | {error, term()}.
 import_users(ChainName, AuthenticatorID, Tenant, Filename) ->
     call({import_users, ChainName, AuthenticatorID, Tenant, Filename}).
 
--spec add_user(chain_name(), authenticator_id(), emqx_types:tenant(), user_info()) ->
+-spec add_user(chain_name(), authenticator_id(), emqx_types:tenant_id(), user_info()) ->
     {ok, user_info()} | {error, term()}.
 add_user(ChainName, AuthenticatorID, Tenant, UserInfo) ->
     call({add_user, ChainName, AuthenticatorID, Tenant, UserInfo}).
 
--spec delete_user(chain_name(), authenticator_id(), emqx_types:tenant(), binary()) ->
+-spec delete_user(chain_name(), authenticator_id(), emqx_types:tenant_id(), binary()) ->
     ok | {error, term()}.
 delete_user(ChainName, AuthenticatorID, Tenant, UserID) ->
     call({delete_user, ChainName, AuthenticatorID, Tenant, UserID}).
 
--spec update_user(chain_name(), authenticator_id(), emqx_types:tenant(), binary(), map()) ->
+-spec update_user(chain_name(), authenticator_id(), emqx_types:tenant_id(), binary(), map()) ->
     {ok, user_info()} | {error, term()}.
 update_user(ChainName, AuthenticatorID, Tenant, UserID, NewUserInfo) ->
     call({update_user, ChainName, AuthenticatorID, Tenant, UserID, NewUserInfo}).
 
--spec lookup_user(chain_name(), authenticator_id(), emqx_types:tenant(), binary()) ->
+-spec lookup_user(chain_name(), authenticator_id(), emqx_types:tenant_id(), binary()) ->
     {ok, user_info()} | {error, term()}.
 lookup_user(ChainName, AuthenticatorID, Tenant, UserID) ->
     call({lookup_user, ChainName, AuthenticatorID, Tenant, UserID}).
 
--spec list_users(chain_name(), authenticator_id(), emqx_types:tenant() | undefined, map()) ->
+-spec list_users(chain_name(), authenticator_id(), emqx_types:tenant_id() | undefined, map()) ->
     {ok, [user_info()]} | {error, term()}.
 list_users(ChainName, AuthenticatorID, Tenant, FuzzyParams) ->
     call({list_users, ChainName, AuthenticatorID, Tenant, FuzzyParams}).

@@ -147,9 +147,9 @@ set_metadata_clientid(ClientId) ->
 set_metadata_peername(Peername) ->
     set_proc_metadata(#{peername => Peername}).
 
--spec set_metadata_tenant(emqx_types:tenant()) -> ok.
+-spec set_metadata_tenant(emqx_types:tenant_id()) -> ok.
 set_metadata_tenant(Tenant) ->
-    set_proc_metadata(#{tenant => Tenant}).
+    set_proc_metadata(#{tenant_id => Tenant}).
 
 -spec set_proc_metadata(logger:metadata()) -> ok.
 set_proc_metadata(Meta) ->

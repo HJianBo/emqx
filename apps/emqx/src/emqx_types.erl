@@ -38,7 +38,7 @@
     sockstate/0,
     conninfo/0,
     clientinfo/0,
-    tenant/0,
+    tenant_id/0,
     username/0,
     password/0,
     peerhost/0,
@@ -147,7 +147,7 @@
 }.
 -type clientinfo() :: #{
     zone := maybe(zone()),
-    tenant := tenant(),
+    tenant_id := tenant_id(),
     protocol := protocol(),
     peerhost := peerhost(),
     sockport := non_neg_integer(),
@@ -165,7 +165,7 @@
     atom() => term()
 }.
 %% The default/empty tenant is <<>>
--type tenant() :: binary().
+-type tenant_id() :: binary().
 -type username() :: maybe(binary()).
 -type password() :: maybe(binary()).
 -type peerhost() :: inet:ip_address().

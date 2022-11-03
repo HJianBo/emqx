@@ -68,7 +68,7 @@
 -type user_id() :: binary().
 
 -record(user_info, {
-    user_id :: {user_group(), emqx_types:tenant(), user_id()},
+    user_id :: {user_group(), emqx_types:tenant_id(), user_id()},
     password_hash :: binary(),
     salt :: binary(),
     is_superuser :: boolean()
@@ -181,7 +181,7 @@ authenticate(
         password_hash_algorithm := Algorithm
     }
 ) ->
-    Tenant = maps:get(tenant, Credential, ?NO_TENANT),
+    Tenant = maps:get(tenant_id, Credential, ?NO_TENANT),
     UserID = get_user_identity(Credential, Type),
     case mnesia:dirty_read(?TAB, {UserGroup, Tenant, UserID}) of
         [] ->
@@ -429,8 +429,8 @@ get_user_info_by_seq([], [], #{user_id := _, password_hash := _} = Acc) ->
     {ok, Acc};
 get_user_info_by_seq(_, [], _) ->
     {error, bad_format};
-get_user_info_by_seq([Tenant | More1], [<<"tenant">> | More2], Acc) ->
-    get_user_info_by_seq(More1, More2, Acc#{tenant => Tenant});
+get_user_info_by_seq([Tenant | More1], [<<"tenant_id">> | More2], Acc) ->
+    get_user_info_by_seq(More1, More2, Acc#{tenant_id => Tenant});
 get_user_info_by_seq([UserID | More1], [<<"user_id">> | More2], Acc) ->
     get_user_info_by_seq(More1, More2, Acc#{user_id => UserID});
 get_user_info_by_seq([PasswordHash | More1], [<<"password_hash">> | More2], Acc) ->
@@ -494,7 +494,7 @@ qs2ms(Qs) when is_list(Qs) ->
     {Mh, Conds} =
         case QsMap of
             %% query `undefined` tenant means all tenants
-            #{user_group := Group, tenant := Tenant} when Tenant =/= undefined ->
+            #{user_group := Group, tenant_id := Tenant} when Tenant =/= undefined ->
                 {Mh0#user_info{user_id = {'$1', '$2', '_'}}, [
                     {'=:=', '$1', Group},
                     {'=:=', '$2', Tenant}

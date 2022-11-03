@@ -20,10 +20,10 @@
 
 -export([tenant/1, tenant/2]).
 
--spec tenant(map()) -> emqx_types:tenant().
+-spec tenant(map()) -> emqx_types:tenant_id().
 tenant(Req) ->
     tenant(Req, ?NO_TENANT).
 
--spec tenant(map(), emqx_types:tenant()) -> eqmx_types:tenant().
+-spec tenant(map(), emqx_types:tenant_id()) -> eqmx_types:tenant_id().
 tenant(_Req = #{headers := Headers}, Default) ->
     maps:get(<<"emqx-tenant-id">>, Headers, Default).

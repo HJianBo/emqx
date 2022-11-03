@@ -37,9 +37,9 @@
     end
 ).
 
--type all() :: {all, emqx_types:tenant()}.
--type username() :: {username, emqx_types:tenant(), binary()}.
--type clientid() :: {clientid, emqx_types:tenant(), binary()}.
+-type all() :: {all, emqx_types:tenant_id()}.
+-type username() :: {username, emqx_types:tenant_id(), binary()}.
+-type clientid() :: {clientid, emqx_types:tenant_id(), binary()}.
 -type who() :: username() | clientid() | all().
 
 -type rule() :: {emqx_authz_rule:permission(), emqx_authz_rule:action(), emqx_topic:topic()}.
@@ -47,9 +47,9 @@
 
 -record(emqx_acl, {
     who ::
-        {?ACL_TABLE_ALL, emqx_types:tenant()}
-        | {?ACL_TABLE_USERNAME, emqx_types:tenant(), binary()}
-        | {?ACL_TABLE_CLIENTID, emqx_types:tenant(), binary()},
+        {?ACL_TABLE_ALL, emqx_types:tenant_id()}
+        | {?ACL_TABLE_USERNAME, emqx_types:tenant_id(), binary()}
+        | {?ACL_TABLE_CLIENTID, emqx_types:tenant_id(), binary()},
     rules :: rules()
 }).
 
@@ -117,7 +117,7 @@ authorize(
     Topic,
     #{type := built_in_database}
 ) ->
-    Tenant = maps:get(tenant, Client, ?NO_TENANT),
+    Tenant = maps:get(tenant_id, Client, ?NO_TENANT),
     Rules =
         case mnesia:dirty_read(?ACL_TABLE, {?ACL_TABLE_CLIENTID, Tenant, Clientid}) of
             [] -> [];
@@ -186,7 +186,7 @@ delete_rules({clientid, Tenant, Clientid}) ->
 delete_rules({all, Tenant}) ->
     mria:dirty_delete(?ACL_TABLE, {?ACL_TABLE_ALL, Tenant}).
 
--spec list_username_rules(emqx_types:tenant() | undefined) -> ets:match_spec().
+-spec list_username_rules(emqx_types:tenant_id() | undefined) -> ets:match_spec().
 list_username_rules(undefined) ->
     ets:fun2ms(
         fun(#emqx_acl{who = {?ACL_TABLE_USERNAME, '_', Username}, rules = Rules}) ->
@@ -202,7 +202,7 @@ list_username_rules(Tenant0) ->
         end
     ).
 
--spec list_clientid_rules(emqx_types:tenant() | undefined) -> ets:match_spec().
+-spec list_clientid_rules(emqx_types:tenant_id() | undefined) -> ets:match_spec().
 list_clientid_rules(undefined) ->
     ets:fun2ms(
         fun(#emqx_acl{who = {?ACL_TABLE_CLIENTID, '_', Clientid}, rules = Rules}) ->
@@ -218,7 +218,7 @@ list_clientid_rules(Tenant0) ->
         end
     ).
 
--spec list_all_rules(emqx_types:tenant() | undefined) -> ets:match_spec().
+-spec list_all_rules(emqx_types:tenant_id() | undefined) -> ets:match_spec().
 list_all_rules(undefined) ->
     ets:fun2ms(
         fun(#emqx_acl{who = {?ACL_TABLE_ALL, '_'}, rules = Rules}) ->

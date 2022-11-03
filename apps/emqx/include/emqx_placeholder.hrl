@@ -33,7 +33,7 @@
 -define(PH_USERNAME, <<"${username}">>).
 -define(PH_FROM_USERNAME, <<"${from_username}">>).
 -define(PH_TOPIC, <<"${topic}">>).
--define(PH_TENANT, <<"${tenant}">>).
+-define(PH_TENANT, <<"${tenant_id}">>).
 %% MQTT payload
 -define(PH_PAYLOAD, <<"${payload}">>).
 %% client IPAddress

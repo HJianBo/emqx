@@ -259,7 +259,7 @@ init(
         Peercert,
         #{
             zone => Zone,
-            tenant => ?NO_TENANT,
+            tenant_id => ?NO_TENANT,
             listener => ListenerId,
             protocol => Protocol,
             peerhost => PeerHost,
@@ -1584,7 +1584,7 @@ set_tenant(_ConnPkt, ConnInfo, ClientInfo = #{clientid := ClientId}) ->
         peersni ->
             Tenant = parse_peersni(maps:get(peersni, ConnInfo, undefined)),
             ClientInfo#{
-                tenant => Tenant,
+                tenant_id => Tenant,
                 clientid => emqx_clientid:with_tenant(Tenant, ClientId)
             }
     end.
@@ -1655,7 +1655,7 @@ fix_mountpoint(_ConnPkt, ClientInfo = #{mountpoint := MountPoint}) ->
 
 set_log_meta(_ConnPkt, #channel{
     clientinfo = #{
-        tenant := Tenant,
+        tenant_id := Tenant,
         clientid := GroupedClientId
     }
 }) ->

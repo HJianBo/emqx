@@ -24,7 +24,7 @@
 
 -type clientid() :: binary() | atom().
 
--type grouped_clientid() :: {emqx_types:tenant(), clientid()} | clientid().
+-type grouped_clientid() :: {emqx_types:tenant_id(), clientid()} | clientid().
 
 -export_type([clientid/0, grouped_clientid/0]).
 
@@ -44,7 +44,7 @@ without_tenant(ClientId) when ?IS_NORMAL_ID(ClientId) ->
 without_tenant(ClientId) ->
     error(badarg, [ClientId]).
 
--spec with_tenant(emqx_types:tenant(), grouped_clientid()) -> grouped_clientid().
+-spec with_tenant(emqx_types:tenant_id(), grouped_clientid()) -> grouped_clientid().
 with_tenant(?NO_TENANT, ClientId) when ?IS_NORMAL_ID(ClientId) ->
     ClientId;
 with_tenant(?NO_TENANT, {_, ClientId}) ->
@@ -56,7 +56,7 @@ with_tenant(Tenant, ClientId) when ?IS_NORMAL_ID(ClientId) ->
 with_tenant(Tenant, ClientId) ->
     error(badarg, [Tenant, ClientId]).
 
--spec update_clientid(emqx_types:tenant(), grouped_clientid()) -> grouped_clientid().
+-spec update_clientid(emqx_types:tenant_id(), grouped_clientid()) -> grouped_clientid().
 update_clientid(Id, _GroupedClientId = {Tenant, _}) ->
     {Tenant, Id};
 update_clientid(Id, ClientId) when ?IS_NORMAL_ID(ClientId) ->

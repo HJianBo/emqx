@@ -389,7 +389,7 @@ fields(client) ->
                 desc =>
                     <<"Indicate whether the client is using a brand new session">>
             })},
-        {tenant, hoconsc:mk(binary(), #{desc => <<"Tenant ID belongs to">>})},
+        {tenant_id, hoconsc:mk(binary(), #{desc => <<"Tenant ID belongs to">>})},
         {clientid, hoconsc:mk(binary(), #{desc => <<"Client identifier">>})},
         {connected, hoconsc:mk(boolean(), #{desc => <<"Whether the client is connected">>})},
         {connected_at,
@@ -992,10 +992,10 @@ result_format_undefined_to_null(Map) ->
         Map
     ).
 
-uncompound_clientid(ClientInfoMap = #{tenant := Tenant, clientid := GroupedClientId}) ->
+uncompound_clientid(ClientInfoMap = #{tenant_id := Tenant, clientid := GroupedClientId}) ->
     ClientID = emqx_clientid:without_tenant(GroupedClientId),
     ClientInfoMap#{
-        tenant => Tenant,
+        tenant_id => Tenant,
         clientid => ClientID
     }.
 

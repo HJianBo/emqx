@@ -268,7 +268,7 @@ reason(_) -> internal_error.
 
 on_client_subscribed(
     _ClientInfo = #{
-        tenant := Tenant,
+        tenant_id := Tenant,
         clientid := GroupedClientId,
         username := Username,
         protocol := Protocol
@@ -278,7 +278,7 @@ on_client_subscribed(
 ) ->
     ClientId = emqx_clientid:without_tenant(GroupedClientId),
     Payload = #{
-        tenant => Tenant,
+        tenant_id => Tenant,
         clientid => ClientId,
         username => Username,
         protocol => Protocol,
@@ -290,7 +290,7 @@ on_client_subscribed(
 
 on_client_unsubscribed(
     _ClientInfo = #{
-        tenant := Tenant,
+        tenant_id := Tenant,
         clientid := GroupedClientId,
         username := Username,
         protocol := Protocol
@@ -300,7 +300,7 @@ on_client_unsubscribed(
 ) ->
     ClientId = emqx_clientid:without_tenant(GroupedClientId),
     Payload = #{
-        tenant => Tenant,
+        tenant_id => Tenant,
         clientid => ClientId,
         username => Username,
         protocol => Protocol,
@@ -377,7 +377,7 @@ safe_publish(Topic, Flags, Payload) ->
 
 common_infos(
     _ClientInfo = #{
-        tenant := Tenant,
+        tenant_id := Tenant,
         clientid := GroupedClientId,
         username := Username,
         peerhost := PeerHost,
@@ -392,7 +392,7 @@ common_infos(
 ) ->
     ClientId = emqx_clientid:without_tenant(GroupedClientId),
     #{
-        tenant => Tenant,
+        tenant_id => Tenant,
         clientid => ClientId,
         username => Username,
         ipaddress => ntoa(PeerHost),

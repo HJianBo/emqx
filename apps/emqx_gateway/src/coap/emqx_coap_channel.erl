@@ -142,7 +142,7 @@ init(
         Peercert,
         #{
             zone => default,
-            tenant => ?NO_TENANT,
+            tenant_id => ?NO_TENANT,
             listener => ListenerId,
             protocol => 'coap',
             peerhost => PeerHost,
