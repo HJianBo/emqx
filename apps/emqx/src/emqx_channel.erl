@@ -1582,14 +1582,14 @@ set_tenant(_ConnPkt, ConnInfo, ClientInfo = #{clientid := ClientId}) ->
         none ->
             ClientInfo;
         peersni ->
-            Tenant = parse_peersni(maps:get(peersni, ConnInfo, ?NO_TENANT)),
+            Tenant = parse_peersni(maps:get(peersni, ConnInfo, undefined)),
             ClientInfo#{
                 tenant => Tenant,
                 clientid => emqx_clientid:with_tenant(Tenant, ClientId)
             }
     end.
 
-parse_peersni(?NO_TENANT) ->
+parse_peersni(undefined) ->
     ?NO_TENANT;
 parse_peersni(PeerSNI) ->
     [HostName | _] = re:split(PeerSNI, "\\.", [{parts, 2}]),

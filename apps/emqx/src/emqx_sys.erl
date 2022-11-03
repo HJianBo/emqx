@@ -408,23 +408,24 @@ ntoa(undefined) -> undefined;
 ntoa({IpAddr, Port}) -> iolist_to_binary([inet:ntoa(IpAddr), ":", integer_to_list(Port)]);
 ntoa(IpAddr) -> iolist_to_binary(inet:ntoa(IpAddr)).
 
-event_topic(Event, #{tenant := Tenant, clientid := ClientId, protocol := mqtt}) ->
+event_topic(Event, #{clientid := ClientId, protocol := mqtt}) ->
     iolist_to_binary(
         [
             systop("clients"),
-            composed_clientid_field(Tenant, ClientId),
+            "/",
+            ClientId,
             "/",
             atom_to_binary(Event)
         ]
     );
-event_topic(Event, #{tenant := Tenant, clientid := ClientId, protocol := GwName}) ->
+event_topic(Event, #{clientid := ClientId, protocol := GwName}) ->
     iolist_to_binary(
         [
             systop("gateway"),
             "/",
             bin(GwName),
             "/clients/",
-            composed_clientid_field(Tenant, ClientId),
+            ClientId,
             "/",
             bin(Event)
         ]
@@ -432,8 +433,3 @@ event_topic(Event, #{tenant := Tenant, clientid := ClientId, protocol := GwName}
 
 bin(A) when is_atom(A) -> atom_to_binary(A);
 bin(B) when is_binary(B) -> B.
-
-composed_clientid_field(undefined, ClientId) ->
-    composed_clientid_field(<<"default">>, ClientId);
-composed_clientid_field(Tenant, ClientId) ->
-    ["/", Tenant, "/", ClientId].
