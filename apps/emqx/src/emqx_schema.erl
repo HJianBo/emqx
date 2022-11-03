@@ -141,6 +141,11 @@ roots(high) ->
             sc(
                 ref(?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME),
                 #{}
+            )},
+        {"tenant",
+            sc(
+                ref("tenant"),
+                #{desc => ?DESC(tenant)}
             )}
     ];
 roots(medium) ->
@@ -366,6 +371,17 @@ fields("cache") ->
                 #{
                     default => "1m",
                     desc => ?DESC(fields_cache_ttl)
+                }
+            )}
+    ];
+fields("tenant") ->
+    [
+        {"tenant_id_from",
+            sc(
+                hoconsc:union([none, peersni]),
+                #{
+                    default => none,
+                    desc => ?DESC(tenant_id_from)
                 }
             )}
     ];
@@ -1697,6 +1713,9 @@ desc("stats") ->
     "You can find statistic data from the dashboard, or from the '/stats' API.";
 desc("authorization") ->
     "Settings for client authorization.";
+desc("tenant") ->
+    "Tenant Configuration.<br/>"
+    "These configurations determine how to enable the EMQX multi-tenancy feature.<br/>";
 desc("mqtt") ->
     "Global MQTT configuration.<br/>"
     "The configs here work as default values which can be overridden\n"

@@ -1578,11 +1578,22 @@ enrich_client(ConnPkt, Channel = #channel{conninfo = ConnInfo, clientinfo = Clie
     end.
 
 set_tenant(_ConnPkt, ConnInfo, ClientInfo = #{clientid := ClientId}) ->
-    Tenant = maps:get(peersni, ConnInfo, ?NO_TENANT),
-    ClientInfo#{
-        tenant => Tenant,
-        clientid => emqx_clientid:update_tenant(Tenant, ClientId)
-    }.
+    case emqx_config:get([tenant, tenant_id_from]) of
+        none ->
+            ClientInfo;
+        peersni ->
+            Tenant = parse_peersni(maps:get(peersni, ConnInfo, ?NO_TENANT)),
+            ClientInfo#{
+                tenant => Tenant,
+                clientid => emqx_clientid:update_tenant(Tenant, ClientId)
+            }
+    end.
+
+parse_peersni(?NO_TENANT) ->
+    ?NO_TENANT;
+parse_peersni(PeerSNI) ->
+    [HostName | _] = re:split(PeerSNI, "\\.", [{parts, 2}]),
+    HostName.
 
 set_username(
     #mqtt_packet_connect{username = Username},
