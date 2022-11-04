@@ -344,9 +344,11 @@ handle_in(?CONNECT_PACKET(ConnPkt) = Packet, Channel) ->
                 fun enrich_conninfo/2,
                 fun run_conn_hooks/2,
                 fun check_connect/2,
+                fun setup_tenant/2,
                 fun enrich_client/2,
                 fun set_log_meta/2,
                 fun check_banned/2,
+                fun check_tenant_policy/2,
                 fun count_flapping_event/2
             ],
             ConnPkt,
@@ -918,11 +920,11 @@ maybe_update_expiry_interval(
             Channel;
         false ->
             NChannel = Channel#channel{conninfo = ConnInfo#{expiry_interval => EI}},
-            ClientID = maps:get(clientid, ClientInfo, undefined),
+            ClientId = maps:get(clientid, ClientInfo, undefined),
             %% Check if the client turns off persistence (turning it on is disallowed)
             case EI =:= 0 andalso OldEI > 0 of
                 true ->
-                    S = emqx_persistent_session:discard(ClientID, NChannel#channel.session),
+                    S = emqx_persistent_session:discard(ClientId, NChannel#channel.session),
                     set_session(S, NChannel);
                 false ->
                     NChannel
@@ -1555,10 +1557,67 @@ check_connect(ConnPkt, #channel{clientinfo = #{zone := Zone}}) ->
     emqx_packet:check(ConnPkt, emqx_mqtt_caps:get_caps(Zone)).
 
 %%--------------------------------------------------------------------
+%% Tenant setup
+
+setup_tenant(ConnPkt, Channel = #channel{conninfo = ConnInfo}) ->
+    case emqx_config:get([tenant, tenant_id_from], none) of
+        none ->
+            ok;
+        peersni ->
+            Tenant = parse_peersni(maps:get(peersni, ConnInfo, undefined)),
+            Pipe = pipeline(
+                [
+                    fun setup_tenant_id/2,
+                    fun check_tenant_id_allowed/2,
+                    fun setup_topic_prefix/2
+                ],
+                Tenant,
+                Channel#channel.clientinfo
+            ),
+            case Pipe of
+                {ok, _, NClientInfo} ->
+                    {ok, ConnPkt, Channel#channel{clientinfo = NClientInfo}};
+                {error, ReasonCode, NClientInfo} ->
+                    {error, ReasonCode, Channel#channel{clientinfo = NClientInfo}}
+            end
+    end.
+
+parse_peersni(undefined) ->
+    ?NO_TENANT;
+parse_peersni(PeerSNI) ->
+    [HostName | _] = re:split(PeerSNI, "\\.", [{parts, 2}]),
+    HostName.
+
+setup_tenant_id(Tenant, ClientInfo = #{clientid := ClientId}) ->
+    NClientInfo = ClientInfo#{
+        tenant_id => Tenant, clientid => emqx_clientid:with_tenant(Tenant, ClientId)
+    },
+    {ok, Tenant, NClientInfo}.
+
+check_tenant_id_allowed(Tenant, _ClientInfo) ->
+    case emqx_config:get([tenant, allow_undefined_tenant_access], true) of
+        false when Tenant =:= ?NO_TENANT ->
+            {error, ?RC_BANNED};
+        true ->
+            ok
+    end.
+
+setup_topic_prefix(?NO_TENANT, ClientInfo) ->
+    {ok, ?NO_TENANT, ClientInfo};
+setup_topic_prefix(Tenant, ClientInfo = #{mountpoint := MountPoint}) ->
+    Prefix0 = list_to_binary(emqx_config:get([tenant, topic_prefix], "")),
+    Prefix = emqx_mountpoint:replvar(Prefix0, #{tenant_id => Tenant}),
+    NMountPoint =
+        case MountPoint of
+            undefined -> Prefix;
+            _ -> <<Prefix/binary, MountPoint/binary>>
+        end,
+    {ok, Tenant, ClientInfo#{mountpoint => NMountPoint}}.
+
+%%--------------------------------------------------------------------
 %% Enrich Client Info
 
-enrich_client(ConnPkt, Channel = #channel{conninfo = ConnInfo, clientinfo = ClientInfo0}) ->
-    ClientInfo = set_tenant(ConnPkt, ConnInfo, ClientInfo0),
+enrich_client(ConnPkt, Channel = #channel{clientinfo = ClientInfo}) ->
     Pipe = pipeline(
         [
             fun set_username/2,
@@ -1576,24 +1635,6 @@ enrich_client(ConnPkt, Channel = #channel{conninfo = ConnInfo, clientinfo = Clie
         {error, ReasonCode, NClientInfo} ->
             {error, ReasonCode, Channel#channel{clientinfo = NClientInfo}}
     end.
-
-set_tenant(_ConnPkt, ConnInfo, ClientInfo = #{clientid := ClientId}) ->
-    case emqx_config:get([tenant, tenant_id_from]) of
-        none ->
-            ClientInfo;
-        peersni ->
-            Tenant = parse_peersni(maps:get(peersni, ConnInfo, undefined)),
-            ClientInfo#{
-                tenant_id => Tenant,
-                clientid => emqx_clientid:with_tenant(Tenant, ClientId)
-            }
-    end.
-
-parse_peersni(undefined) ->
-    ?NO_TENANT;
-parse_peersni(PeerSNI) ->
-    [HostName | _] = re:split(PeerSNI, "\\.", [{parts, 2}]),
-    HostName.
 
 set_username(
     #mqtt_packet_connect{username = Username},
@@ -1670,6 +1711,16 @@ check_banned(_ConnPkt, #channel{clientinfo = ClientInfo}) ->
     case emqx_banned:check(ClientInfo) of
         true -> {error, ?RC_BANNED};
         false -> ok
+    end.
+
+%%--------------------------------------------------------------------
+%% Check tenant policy
+
+check_tenant_policy(_ConnPkt, #channel{clientinfo = ClientInfo}) ->
+    %% XXX: check tenant quota, limit, etc.
+    case emqx_hooks:run_fold('tenant.connecting_check', [ClientInfo], ok) of
+        ok -> ok;
+        {error, Reason} -> {error, Reason}
     end.
 
 %%--------------------------------------------------------------------
