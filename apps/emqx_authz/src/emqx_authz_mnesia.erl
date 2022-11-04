@@ -127,7 +127,7 @@ authorize(
                 [] -> [];
                 [#emqx_acl{rules = Rules1}] when is_list(Rules1) -> Rules1
             end ++
-            case mnesia:dirty_read(?ACL_TABLE, ?ACL_TABLE_ALL) of
+            case mnesia:dirty_read(?ACL_TABLE, {?ACL_TABLE_ALL, Tenant}) of
                 [] -> [];
                 [#emqx_acl{rules = Rules2}] when is_list(Rules2) -> Rules2
             end,

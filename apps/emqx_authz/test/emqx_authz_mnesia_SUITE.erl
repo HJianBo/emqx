@@ -18,6 +18,8 @@
 -compile(nowarn_export_all).
 -compile(export_all).
 
+-include_lib("emqx/include/emqx.hrl").
+
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -65,6 +67,7 @@ t_all_topic_rules(_Config) ->
 
 test_topic_rules(Key) ->
     ClientInfo = #{
+        tenant_id => ?NO_TENANT,
         clientid => <<"clientid">>,
         username => <<"username">>,
         peerhost => {127, 0, 0, 1},
@@ -84,6 +87,7 @@ test_topic_rules(Key) ->
 
 t_normalize_rules(_Config) ->
     ClientInfo = #{
+        tenant_id => ?NO_TENANT,
         clientid => <<"clientid">>,
         username => <<"username">>,
         peerhost => {127, 0, 0, 1},
@@ -92,7 +96,7 @@ t_normalize_rules(_Config) ->
     },
 
     ok = emqx_authz_mnesia:store_rules(
-        {username, <<"username">>},
+        {username, ?NO_TENANT, <<"username">>},
         [{allow, publish, "t"}]
     ),
 
@@ -105,7 +109,7 @@ t_normalize_rules(_Config) ->
         error,
         {invalid_rule, _},
         emqx_authz_mnesia:store_rules(
-            {username, <<"username">>},
+            {username, ?NO_TENANT, <<"username">>},
             [[allow, publish, <<"t">>]]
         )
     ),
@@ -114,7 +118,7 @@ t_normalize_rules(_Config) ->
         error,
         {invalid_rule_action, _},
         emqx_authz_mnesia:store_rules(
-            {username, <<"username">>},
+            {username, ?NO_TENANT, <<"username">>},
             [{allow, pub, <<"t">>}]
         )
     ),
@@ -123,7 +127,7 @@ t_normalize_rules(_Config) ->
         error,
         {invalid_rule_permission, _},
         emqx_authz_mnesia:store_rules(
-            {username, <<"username">>},
+            {username, ?NO_TENANT, <<"username">>},
             [{accept, publish, <<"t">>}]
         )
     ).
@@ -154,9 +158,9 @@ setup_client_samples(ClientInfo, Samples, Key) ->
     #{username := Username, clientid := ClientId} = ClientInfo,
     Who =
         case Key of
-            username -> {username, Username};
-            clientid -> {clientid, ClientId};
-            all -> all
+            username -> {username, ?NO_TENANT, Username};
+            clientid -> {clientid, ?NO_TENANT, ClientId};
+            all -> {all, ?NO_TENANT}
         end,
     ok = emqx_authz_mnesia:store_rules(Who, Rules).
 
