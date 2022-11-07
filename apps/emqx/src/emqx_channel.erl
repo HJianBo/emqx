@@ -1576,6 +1576,7 @@ setup_tenant(ConnPkt, Channel = #channel{conninfo = ConnInfo}) ->
             ),
             case Pipe of
                 {ok, _, NClientInfo} ->
+                    ?tp(debug, setup_tenant, #{tenant_id => Tenant}),
                     {ok, ConnPkt, Channel#channel{clientinfo = NClientInfo}};
                 {error, ReasonCode, NClientInfo} ->
                     {error, ReasonCode, Channel#channel{clientinfo = NClientInfo}}
