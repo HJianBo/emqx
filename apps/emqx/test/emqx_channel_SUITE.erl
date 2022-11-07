@@ -1189,6 +1189,7 @@ clientinfo(InitProps) ->
     maps:merge(
         #{
             zone => default,
+            tenant_id => ?NO_TENANT,
             listener => {tcp, default},
             protocol => mqtt,
             peerhost => {127, 0, 0, 1},
