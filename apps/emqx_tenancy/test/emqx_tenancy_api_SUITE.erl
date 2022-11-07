@@ -53,6 +53,8 @@ t_create(_Config) ->
     {ok, #{<<"data">> := List}} = list_tenant([]),
     ?assert(lists:member(Create, List)),
     {ok, Tenant} = read_tenant(Id),
+    #{<<"quota">> := Quota} = Create,
+    ?assertEqual(emqx_json:encode(Quota), emqx_json:encode(emqx_tenancy:default_quota())),
     ?assertEqual(Create, Tenant),
     ?assertEqual(
         {error, {"HTTP/1.1", 404, "Not Found"}}, read_tenant(<<"emqx-tenant-id-no-exist">>)

@@ -28,6 +28,11 @@
 -export([delete/1, do_delete/1]).
 -export([format/1]).
 
+-ifdef(TEST).
+-compile(nowarn_export_all).
+-compile(export_all).
+-endif.
+
 -spec mnesia(boot) -> ok.
 mnesia(boot) ->
     ok = mria:create_table(?TENANCY, [
@@ -131,15 +136,43 @@ to_rfc3339(Second) ->
 to_tenant(Tenant) ->
     #{
         <<"id">> := Id,
-        <<"quota">> := Quota,
+        <<"quota">> := Quota0,
         <<"status">> := Status,
         <<"desc">> := Desc
     } = Tenant,
+    Quota1 = maps:merge(default_quota(), Quota0),
     #tenant{
         id = Id,
-        quota = Quota,
+        quota = Quota1,
         status = Status,
         desc = Desc
+    }.
+
+default_quota() ->
+    #{
+        <<"max_connection">> => 10000,
+        <<"max_conn_rate">> => 1000,
+        <<"max_messages_in">> => 1000,
+        <<"max_bytes_in">> => 100000,
+        <<"max_subs_rate">> => 500,
+        <<"max_authn_users">> => 10000,
+        <<"max_authz_users">> => 10000,
+        <<"max_retained_messages">> => 1000,
+        <<"max_rules">> => 1000,
+        <<"max_resources">> => 50,
+        <<"max_shared_subscriptions">> => 100,
+        <<"min_keepalive">> => 30,
+        <<"max_keepalive">> => 3600,
+        <<"session_expiry_interval">> => 7200,
+        <<"max_mqueue_len">> => 32,
+        <<"max_inflight">> => 100,
+        <<"max_awaiting_rel">> => 100,
+        <<"max_subscriptions">> => infinity,
+        <<"max_packet_size">> => 1048576,
+        <<"max_clientid_len">> => 65535,
+        <<"max_topic_levels">> => 65535,
+        <<"max_qos_allowed">> => 2,
+        <<"max_topic_alias">> => 65535
     }.
 
 now_second() ->
