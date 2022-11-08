@@ -165,7 +165,8 @@ defmodule EMQXUmbrella.MixProject do
             :emqx_prometheus,
             :emqx_auto_subscribe,
             :emqx_slow_subs,
-            :emqx_plugins
+            :emqx_plugins,
+            :emqx_tenancy
           ],
           steps: steps,
           strip_beams: false
