@@ -201,7 +201,7 @@ t_tenant_id_from_peersni(Config) ->
         ssl_opts => [{server_name_indication, ?TENANT_BAR_SNI}]
     }),
     {ok, C3} = ClientFn(?DEFAULT_CLIENTID, #{ssl_opts => [{server_name_indication, disable}]}),
-    %% assert the sni parsing
+    %% assert tenant_id is prefix of sni
     ?assertMatch(
         #{clientinfo := #{tenant_id := ?TENANT_FOO}},
         emqx_cm:get_chan_info(emqx_clientid:with_tenant(?TENANT_FOO, ?DEFAULT_CLIENTID))
@@ -218,17 +218,139 @@ t_tenant_id_from_peersni(Config) ->
     ok = emqtt:disconnect(C2),
     ok = emqtt:disconnect(C3).
 
-%t_pubsub_isolation(_) ->
-%    ok.
-%
-%t_will_mesages_isolation(_) ->
-%    ok.
-%
-%t_shared_subs_works_well(_) ->
-%    ok.
-%
-%t_undefined_tenant_is_superman(_) ->
-%    ok.
+t_pubsub_topic_prefix(Config) ->
+    ClientFn = proplists:get_value(client_conn_fn, Config),
+    {ok, C1} = ClientFn(?DEFAULT_CLIENTID, #{
+        ssl_opts => [{server_name_indication, disable}]
+    }),
+    {ok, C2} = ClientFn(?DEFAULT_CLIENTID, #{
+        ssl_opts => [{server_name_indication, ?TENANT_FOO_SNI}]
+    }),
+
+    Topic = <<"test/1">>,
+    FullTopic = <<"$tenants/tenant_foo/", Topic/binary>>,
+
+    %% undefined tenant don't have topic prefix
+    {ok, _, _} = emqtt:subscribe(C1, Topic),
+    ?assertMatch([_], emqx_broker:subscribers(Topic)),
+    {ok, _, _} = emqtt:unsubscribe(C1, Topic),
+    ?assertMatch([], emqx_broker:subscribers(Topic)),
+
+    %% assert topic prefix for tenant_foo's client subscribing
+    {ok, _, _} = emqtt:subscribe(C2, Topic),
+    ?assertMatch([], emqx_broker:subscribers(Topic)),
+    ?assertMatch([_], emqx_broker:subscribers(FullTopic)),
+    {ok, _, _} = emqtt:unsubscribe(C2, Topic),
+    ?assertMatch([], emqx_broker:subscribers(FullTopic)),
+
+    %% assert topic prefix for tenant_foo's client publish
+    %% (pub to "test/1", recevied by "$tenants/tenant_foo/test/1")
+    {ok, _, _} = emqtt:subscribe(C1, FullTopic),
+    {ok, _} = emqtt:publish(C2, Topic, <<"msg from tenant_foo">>, qos1),
+    ?assertMatch([#{client_pid := C1, topic := FullTopic}], acc_emqtt_publish(1)),
+
+    ok = emqtt:disconnect(C1),
+    ok = emqtt:disconnect(C2).
+
+t_pubsub_isolation(Config) ->
+    ClientFn = proplists:get_value(client_conn_fn, Config),
+    ClientId1 = ?DEFAULT_CLIENTID,
+    ClientId2 = <<"clientid2">>,
+    ClientId3 = <<"clientid3">>,
+    {ok, C1} = ClientFn(ClientId1, #{
+        ssl_opts => [{server_name_indication, ?TENANT_FOO_SNI}]
+    }),
+    {ok, C2} = ClientFn(ClientId2, #{
+        ssl_opts => [{server_name_indication, ?TENANT_FOO_SNI}]
+    }),
+    {ok, C3} = ClientFn(ClientId3, #{
+        ssl_opts => [{server_name_indication, ?TENANT_BAR_SNI}]
+    }),
+
+    Topic = <<"test/1">>,
+    {ok, _, _} = emqtt:subscribe(C1, Topic, qos1),
+    %% should be recevied msg from client2 in same tenant
+    {ok, _} = emqtt:publish(C2, Topic, <<"msg from client2">>, qos1),
+    ?assertMatch([#{client_pid := C1, topic := Topic}], acc_emqtt_publish(1)),
+    %% should not be recevied msg from client3 in different tenant
+    {ok, _} = emqtt:publish(C3, Topic, <<"msg from client3">>, qos2),
+    ?assertMatch([], acc_emqtt_publish(1, 2000)),
+
+    ok = emqtt:disconnect(C1),
+    ok = emqtt:disconnect(C2),
+    ok = emqtt:disconnect(C3).
+
+t_will_mesages_isolation(Config) ->
+    process_flag(trap_exit, true),
+    ClientFn = proplists:get_value(client_conn_fn, Config),
+    WillTopic = <<"will/t">>,
+    FullWillTopic = <<"$tenants/tenant_foo/", WillTopic/binary>>,
+    {ok, C1} = ClientFn(?DEFAULT_CLIENTID, #{
+        ssl_opts => [{server_name_indication, disable}]
+    }),
+    {ok, _C2} = ClientFn(?DEFAULT_CLIENTID, #{
+        will_topic => WillTopic,
+        will_payload => <<"from tenant_foo client1">>,
+        will_qos => 1,
+        ssl_opts => [{server_name_indication, ?TENANT_FOO_SNI}]
+    }),
+
+    {ok, _, _} = emqtt:subscribe(C1, FullWillTopic, qos1),
+    %% assert the will message with topic prefix
+    ok = emqx_cm:kick_session(emqx_clientid:with_tenant(?TENANT_FOO, ?DEFAULT_CLIENTID)),
+    ?assertMatch([#{client_pid := C1, topic := FullWillTopic}], acc_emqtt_publish(1)),
+
+    ok = emqtt:disconnect(C1).
+
+t_shared_subs_works_well(Config) ->
+    ClientFn = proplists:get_value(client_conn_fn, Config),
+    ClientId1 = ?DEFAULT_CLIENTID,
+    ClientId2 = <<"clientid2">>,
+    ClientId3 = <<"clientid3">>,
+    {ok, C1} = ClientFn(ClientId1, #{
+        ssl_opts => [{server_name_indication, ?TENANT_FOO_SNI}]
+    }),
+    {ok, C2} = ClientFn(ClientId2, #{
+        ssl_opts => [{server_name_indication, ?TENANT_FOO_SNI}]
+    }),
+    {ok, C3} = ClientFn(ClientId3, #{
+        ssl_opts => [{server_name_indication, ?TENANT_FOO_SNI}]
+    }),
+
+    Topic = <<"test/1">>,
+    FullTopic = <<"$tenants/tenant_foo/", Topic/binary>>,
+
+    %% assert shared topic subscribed
+    {ok, _, _} = emqtt:subscribe(C1, <<"$share/g1/", Topic/binary>>, qos1),
+    {ok, _, _} = emqtt:subscribe(C2, <<"$share/g1/", Topic/binary>>, qos1),
+    {ok, _, _} = emqtt:subscribe(C3, <<"$share/g1/", Topic/binary>>, qos1),
+    ?assertMatch(
+        [_, _, _],
+        ets:select(
+            emqx_shared_subscription,
+            [{{emqx_shared_subscription, <<"g1">>, FullTopic, '$1'}, [], ['$1']}]
+        )
+    ),
+    %% only one subscriber can received shared msg
+    Msg = emqx_message:make(test, 1, FullTopic, <<"shared msgs">>),
+    emqx_broker:publish(Msg),
+    ?assertMatch([#{topic := Topic}], acc_emqtt_publish(3)),
+    ok.
+
+t_not_allowed_undefined_tenant(Config) ->
+    process_flag(trap_exit, true),
+    ClientFn = proplists:get_value(client_conn_fn, Config),
+    %% allow undefined tenant client
+    emqx_config:put([tenant, allow_undefined_tenant_access], true),
+    {ok, C1} = ClientFn(?DEFAULT_CLIENTID, #{ssl_opts => [{server_name_indication, disable}]}),
+    ok = emqtt:disconnect(C1),
+    %% deny udenfined tenant client
+    emqx_config:put([tenant, allow_undefined_tenant_access], false),
+    {error, {banned, _}} = ClientFn(?DEFAULT_CLIENTID, #{
+        proto_ver => v5, ssl_opts => [{server_name_indication, disable}]
+    }),
+    emqx_config:put([tenant, allow_undefined_tenant_access], true),
+    ok.
 
 %%--------------------------------------------------------------------
 %% helpers
@@ -243,3 +365,19 @@ clear_meck_recv_ppv2(GroupName) when GroupName == tcp_ppv2; GroupName == ws_ppv2
     ok;
 clear_meck_recv_ppv2(_) ->
     ok.
+
+acc_emqtt_publish(N) ->
+    acc_emqtt_publish(N, 5000, []).
+
+acc_emqtt_publish(N, Timeout) ->
+    acc_emqtt_publish(N, Timeout, []).
+
+acc_emqtt_publish(0, _Timeout, Acc) ->
+    lists:reverse(Acc);
+acc_emqtt_publish(N, Timeout, Acc) ->
+    receive
+        {publish, Msg} ->
+            acc_emqtt_publish(N - 1, Timeout, [Msg | Acc])
+    after Timeout ->
+        lists:reverse(Acc)
+    end.
