@@ -1,9 +1,9 @@
 {application, emqx_tenancy, [
     {description, "Multi-Tenancy for EMQX"},
     {vsn, "0.1.0"},
-    {registered, []},
+    {registered, [emqx_tenancy_sup]},
     {mod, {emqx_tenancy_app, []}},
-    {applications, [kernel, stdlib, minirest, emqx, hocon]},
+    {applications, [kernel, stdlib, mnesia, minirest, hocon, emqx]},
     {env, []},
     {modules, []},
     {licenses, ["Apache 2.0"]},
