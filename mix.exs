@@ -225,7 +225,7 @@ defmodule EMQXUmbrella.MixProject do
         emqx_plugins: :permanent,
         emqx_mix: :none
       ] ++
-      if(enable_tenancy?(), do: [emqx_tenancy: :permanent], else: []) ++
+      if(enable_tenancy?(), do: [emqx_tenancy: :permanent], else: [emqx_tenancy: :permanent]) ++
       if(enable_quicer?(), do: [quicer: :permanent], else: []) ++
       if(enable_bcrypt?(), do: [bcrypt: :permanent], else: []) ++
       if(enable_jq?(), do: [jq: :permanent], else: []) ++
