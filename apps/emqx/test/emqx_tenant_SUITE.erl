@@ -24,6 +24,8 @@
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
+-include_lib("esockd/include/esockd.hrl").
+
 -define(CERTS_PATH(CertName),
     list_to_binary(
         filename:join(["../../lib/emqx/etc/certs/", CertName])
@@ -31,6 +33,7 @@
 ).
 
 -define(DEFAULT_CLIENTID, <<"client1">>).
+-define(DEFAULT_OPTS, #{host => "127.0.0.1", proto_ver => v5, connect_timeout => 5, ssl => false}).
 
 -define(TENANT_FOO, <<"tenant_foo">>).
 -define(TENANT_FOO_SNI, "tenant_foo.emqxserver.io").
@@ -44,10 +47,10 @@
 
 all() ->
     [
-        %{group, tcp_ppv2},
-        %{group, ws_ppv2},
+        {group, tcp_ppv2},
+        {group, ws_ppv2},
         {group, ssl}
-        %{group, wss}
+        %{group, wss} FIXME: SNI is not available from cowboy, so it is not supported for now.
     ].
 
 groups() ->
@@ -103,16 +106,17 @@ end_per_testcase(TestCase, Config) ->
     Config.
 
 client_conn_fn(tcp_ppv2) ->
-    client_conn_fn_gen(connect, #{ssl => false, port => 1883});
+    client_conn_fn_gen(connect, ?DEFAULT_OPTS#{port => 1883});
 client_conn_fn(ws_ppv2) ->
-    client_conn_fn_gen(ws_connect, #{ssl => false, port => 8083});
+    client_conn_fn_gen(ws_connect, ?DEFAULT_OPTS#{port => 8083});
 client_conn_fn(ssl) ->
-    client_conn_fn_gen(connect, #{ssl => true, port => 8883});
+    client_conn_fn_gen(connect, ?DEFAULT_OPTS#{ssl => true, port => 8883});
 client_conn_fn(wss) ->
-    client_conn_fn_gen(ws_connect, #{ssl => true, port => 8084}).
+    client_conn_fn_gen(ws_connect, ?DEFAULT_OPTS#{ssl => true, port => 8084}).
 
 client_conn_fn_gen(Connect, Opts0) ->
     fun(ClientId, Opts1) ->
+        prepare_sni_for_meck(Opts1),
         {ok, C} = emqtt:start_link(maps:merge(Opts0, Opts1#{clientid => ClientId})),
         case emqtt:Connect(C) of
             {ok, _} -> {ok, C};
@@ -347,7 +351,7 @@ t_not_allowed_undefined_tenant(Config) ->
     %% deny udenfined tenant client
     emqx_config:put([tenant, allow_undefined_tenant_access], false),
     {error, {banned, _}} = ClientFn(?DEFAULT_CLIENTID, #{
-        proto_ver => v5, ssl_opts => [{server_name_indication, disable}]
+        ssl_opts => [{server_name_indication, disable}]
     }),
     emqx_config:put([tenant, allow_undefined_tenant_access], true),
     ok.
@@ -356,13 +360,64 @@ t_not_allowed_undefined_tenant(Config) ->
 %% helpers
 %%--------------------------------------------------------------------
 
-meck_recv_ppv2(GroupName) when GroupName == tcp_ppv2; GroupName == ws_ppv2 ->
-    ok;
+prepare_sni_for_meck(Opts) ->
+    persistent_term:put(current_client_sni, sni_from_opts(Opts)).
+
+sni_from_opts(#{ssl_opts := SslOpts}) ->
+    case proplists:get_value(server_name_indication, SslOpts) of
+        disable -> undefined;
+        SNI when is_list(SNI) -> list_to_binary(SNI)
+    end.
+
+meck_recv_ppv2(tcp_ppv2) ->
+    ok = meck:new(esockd_proxy_protocol, [passthrough, no_history]),
+    ok = meck:expect(
+        esockd_proxy_protocol,
+        recv,
+        fun(_Transport, Socket, _Timeout) ->
+            SNI = persistent_term:get(current_client_sni, undefined),
+            {ok, {SrcAddr, SrcPort}} = esockd_transport:peername(Socket),
+            {ok, {DstAddr, DstPort}} = esockd_transport:sockname(Socket),
+            {ok, #proxy_socket{
+                inet = inet4,
+                socket = Socket,
+                src_addr = SrcAddr,
+                dst_addr = DstAddr,
+                src_port = SrcPort,
+                dst_port = DstPort,
+                pp2_additional_info = [{pp2_authority, SNI}]
+            }}
+        end
+    );
+meck_recv_ppv2(ws_ppv2) ->
+    ok = meck:new(ranch_tcp, [passthrough, no_history]),
+    ok = meck:expect(
+        ranch_tcp,
+        recv_proxy_header,
+        fun(Socket, _Timeout) ->
+            SNI = persistent_term:get(current_client_sni, undefined),
+            {ok, {SrcAddr, SrcPort}} = esockd_transport:peername(Socket),
+            {ok, {DstAddr, DstPort}} = esockd_transport:sockname(Socket),
+            {ok, #{
+                authority => SNI,
+                command => proxy,
+                dest_address => DstAddr,
+                dest_port => DstPort,
+                src_address => SrcAddr,
+                src_port => SrcPort,
+                transport_family => ipv4,
+                transport_protocol => stream,
+                version => 2
+            }}
+        end
+    );
 meck_recv_ppv2(_) ->
     ok.
 
-clear_meck_recv_ppv2(GroupName) when GroupName == tcp_ppv2; GroupName == ws_ppv2 ->
-    ok;
+clear_meck_recv_ppv2(tcp_ppv2) ->
+    ok = meck:unload(esockd_proxy_protocol);
+clear_meck_recv_ppv2(ws_ppv2) ->
+    ok = meck:unload(ranch_tcp);
 clear_meck_recv_ppv2(_) ->
     ok.
 
