@@ -21,6 +21,7 @@
 -import(emqx_dashboard_api_test_helpers, [request/3, uri/1, multipart_formdata_request/3]).
 
 -include("emqx_authn.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
 
@@ -34,10 +35,49 @@
 ).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [
+        {group, no_tenant},
+        {group, tenant_foo}
+    ].
 
 groups() ->
-    [].
+    CTs = emqx_common_test_helpers:all(?MODULE),
+    [
+        {no_tenant, [], CTs},
+        {tenant_foo, [], CTs}
+    ].
+
+init_per_group(Group, Config) ->
+    case Group of
+        tenant_foo ->
+            Sni = <<"tenant_foo.emqxserver.io">>,
+            ClientFn = emqx_tenant_test_helpers:reload_listener_with_ppv2(
+                [listeners, tcp, default],
+                Sni
+            ),
+            [{client_fn, ClientFn} | Config];
+        _ ->
+            [{client_fn, normal_client_fn([listeners, tcp, default])} | Config]
+    end.
+
+normal_client_fn([listeners, tcp, _Name]) ->
+    fun(ClientId, Opts1) ->
+        Opts0 = #{
+            host => "127.0.0.1",
+            proto_ver => v5,
+            connect_timeout => 5,
+            ssl => false
+        },
+        NOpts = maps:merge(Opts0, Opts1#{clientid => ClientId}),
+        {ok, C} = emqtt:start_link(NOpts),
+        case emqtt:connect(C) of
+            {ok, _} -> {ok, C};
+            {error, _} = Err -> Err
+        end
+    end.
+
+end_per_group(_Group, _Config) ->
+    ok.
 
 init_per_testcase(_, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
@@ -90,8 +130,9 @@ t_authenticators(_) ->
 t_authenticator(_) ->
     test_authenticator([]).
 
-t_authenticator_users(_) ->
-    test_authenticator_users([]).
+t_authenticator_users(Config) ->
+    ClientFn = proplists:get_value(client_fn, Config),
+    test_authenticator_users([], ClientFn).
 
 t_authenticator_user(_) ->
     test_authenticator_user([]).
@@ -108,8 +149,9 @@ t_listener_authenticators(_) ->
 t_listener_authenticator(_) ->
     test_authenticator(["listeners", ?TCP_DEFAULT]).
 
-t_listener_authenticator_users(_) ->
-    test_authenticator_users(["listeners", ?TCP_DEFAULT]).
+t_listener_authenticator_users(Config) ->
+    ClientFn = proplists:get_value(client_fn, Config),
+    test_authenticator_users(["listeners", ?TCP_DEFAULT], ClientFn).
 
 t_listener_authenticator_user(_) ->
     test_authenticator_user(["listeners", ?TCP_DEFAULT]).
@@ -294,7 +336,7 @@ test_authenticator(PathPrefix) ->
 
     ?assertAuthenticatorsMatch([], PathPrefix ++ [?CONF_NS]).
 
-test_authenticator_users(PathPrefix) ->
+test_authenticator_users(PathPrefix, ClientFn) ->
     UsersUri = uri(PathPrefix ++ [?CONF_NS, "password_based:built_in_database", "users"]),
 
     {ok, 200, _} = request(
@@ -303,17 +345,16 @@ test_authenticator_users(PathPrefix) ->
         emqx_authn_test_lib:built_in_database_example()
     ),
 
-    {ok, Client} = emqtt:start_link(
-        [
-            {username, <<"u_event">>},
-            {clientid, <<"c_event">>},
-            {proto_ver, v5},
-            {properties, #{'Session-Expiry-Interval' => 60}}
-        ]
+    process_flag(trap_exit, true),
+
+    ?assertMatch(
+        {error, _},
+        ClientFn(<<"u_event">>, #{
+            username => <<"u_event">>,
+            properties => #{'Session-Expiry-Interval' => 60}
+        })
     ),
 
-    process_flag(trap_exit, true),
-    ?assertMatch({error, _}, emqtt:connect(Client)),
     timer:sleep(300),
 
     UsersUri0 = uri(PathPrefix ++ [?CONF_NS, "password_based:built_in_database", "status"]),
@@ -363,16 +404,11 @@ test_authenticator_users(PathPrefix) ->
         ValidUsers
     ),
 
-    {ok, Client1} = emqtt:start_link(
-        [
-            {username, <<"u1">>},
-            {password, <<"p1">>},
-            {clientid, <<"c_event">>},
-            {proto_ver, v5},
-            {properties, #{'Session-Expiry-Interval' => 60}}
-        ]
-    ),
-    {ok, _} = emqtt:connect(Client1),
+    {ok, Client1} = ClientFn(<<"c_event">>, #{
+        username => <<"u1">>,
+        password => <<"p1">>,
+        properties => #{'Session-Expiry-Interval' => 60}
+    }),
     timer:sleep(300),
     UsersUri01 = uri(PathPrefix ++ [?CONF_NS, "password_based:built_in_database", "status"]),
     {ok, 200, PageData01} = request(get, UsersUri01),
@@ -462,7 +498,7 @@ test_authenticator_users(PathPrefix) ->
         lists:usort([UserId || #{<<"user_id">> := UserId} <- Super2Users])
     ),
 
-    ok.
+    ok = emqtt:disconnect(Client1).
 
 test_authenticator_user(PathPrefix) ->
     UsersUri = uri(PathPrefix ++ [?CONF_NS, "password_based:built_in_database", "users"]),
@@ -662,7 +698,8 @@ test_authenticator_import_users(PathPrefix) ->
         {filename, "user-credentials.csv", CSVData}
     ]).
 
-t_switch_to_global_chain(_) ->
+t_switch_to_global_chain(Config) ->
+    ClientFn = proplists:get_value(client_fn, Config),
     {ok, 200, _} = request(
         post,
         uri([?CONF_NS]),
@@ -699,24 +736,15 @@ t_switch_to_global_chain(_) ->
     process_flag(trap_exit, true),
 
     %% Listener user should be OK
-    {ok, Client0} = emqtt:start_link([
-        {username, <<"listener_user">>},
-        {password, <<"p1">>}
-    ]),
-    ?assertMatch(
-        {ok, _},
-        emqtt:connect(Client0)
-    ),
+    {ok, Client0} = ClientFn(<<"test_client_id">>, #{
+        username => <<"listener_user">>, password => <<"p1">>
+    }),
     ok = emqtt:disconnect(Client0),
 
     %% Global user should not be OK
-    {ok, Client1} = emqtt:start_link([
-        {username, <<"global_user">>},
-        {password, <<"p1">>}
-    ]),
     ?assertMatch(
-        {error, {unauthorized_client, _}},
-        emqtt:connect(Client1)
+        {error, {not_authorized, _}},
+        ClientFn(<<"test_client_id">>, #{username => <<"global_user">>, password => <<"p1">>})
     ),
 
     {ok, 204, _} = request(
@@ -725,14 +753,9 @@ t_switch_to_global_chain(_) ->
     ),
 
     %% Now listener has only disabled authenticators, should allow anonymous access
-    {ok, Client2} = emqtt:start_link([
-        {username, <<"any_user">>},
-        {password, <<"any_password">>}
-    ]),
-    ?assertMatch(
-        {ok, _},
-        emqtt:connect(Client2)
-    ),
+    {ok, Client2} = ClientFn(<<"test_client_id">>, #{
+        username => <<"any_user">>, password => <<"any_password">>
+    }),
     ok = emqtt:disconnect(Client2),
 
     {ok, 204, _} = request(
@@ -742,24 +765,15 @@ t_switch_to_global_chain(_) ->
 
     %% Local chain is empty now and should be removed
     %% Listener user should not be OK
-    {ok, Client3} = emqtt:start_link([
-        {username, <<"listener_user">>},
-        {password, <<"p1">>}
-    ]),
     ?assertMatch(
-        {error, {unauthorized_client, _}},
-        emqtt:connect(Client3)
+        {error, {not_authorized, _}},
+        ClientFn(<<"test_client_id">>, #{username => <<"listener_user">>, password => <<"p1">>})
     ),
 
     %% Global user should be now OK, switched back to the global chain
-    {ok, Client4} = emqtt:start_link([
-        {username, <<"global_user">>},
-        {password, <<"p1">>}
-    ]),
-    ?assertMatch(
-        {ok, _},
-        emqtt:connect(Client4)
-    ),
+    {ok, Client4} = ClientFn(<<"test_client_id">>, #{
+        username => <<"global_user">>, password => <<"p1">>
+    }),
     ok = emqtt:disconnect(Client4).
 
 %%------------------------------------------------------------------------------

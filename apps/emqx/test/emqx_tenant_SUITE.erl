@@ -353,6 +353,11 @@ t_not_allowed_undefined_tenant(Config) ->
     {error, {banned, _}} = ClientFn(?DEFAULT_CLIENTID, #{
         ssl_opts => [{server_name_indication, disable}]
     }),
+    %% allow tenant client
+    {ok, C2} = ClientFn(?DEFAULT_CLIENTID, #{
+        ssl_opts => [{server_name_indication, ?TENANT_FOO_SNI}]
+    }),
+    ok = emqtt:disconnect(C2),
     emqx_config:put([tenant, allow_undefined_tenant_access], true),
     ok.
 

@@ -27,7 +27,28 @@
 -define(AUTHN_ID, <<"mechanism:backend">>).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [
+        {group, no_tenant},
+        {group, tenant_foo}
+    ].
+
+groups() ->
+    CTs = emqx_common_test_helpers:all(?MODULE),
+    [
+        {no_tenant, [], CTs},
+        {tenant_foo, [], CTs}
+    ].
+
+init_per_group(Group, Config) ->
+    Tenant =
+        case Group of
+            tenant_foo -> <<"tenant_foo">>;
+            _ -> ?NO_TENANT
+        end,
+    [{tenant, Tenant} | Config].
+
+end_per_group(_Group, _Config) ->
+    ok.
 
 init_per_suite(Config) ->
     _ = application:load(emqx_conf),
@@ -95,7 +116,8 @@ t_update(_) ->
     Config1 = Config0#{password_hash_algorithm => #{name => sha256}},
     {ok, _} = emqx_authn_mnesia:update(Config1, State).
 
-t_destroy(_) ->
+t_destroy(TestConfig) ->
+    Tenant = proplists:get_value(tenant, TestConfig),
     Config = config(),
     OtherConfig = Config#{user_group => <<"stomp:global">>},
     {ok, State0} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
@@ -103,85 +125,90 @@ t_destroy(_) ->
 
     User = #{user_id => <<"u">>, password => <<"p">>},
 
-    {ok, _} = emqx_authn_mnesia:add_user(?NO_TENANT, User, State0),
-    {ok, _} = emqx_authn_mnesia:add_user(?NO_TENANT, User, StateOther),
+    {ok, _} = emqx_authn_mnesia:add_user(Tenant, User, State0),
+    {ok, _} = emqx_authn_mnesia:add_user(Tenant, User, StateOther),
 
-    {ok, _} = emqx_authn_mnesia:lookup_user(?NO_TENANT, <<"u">>, State0),
-    {ok, _} = emqx_authn_mnesia:lookup_user(?NO_TENANT, <<"u">>, StateOther),
+    {ok, _} = emqx_authn_mnesia:lookup_user(Tenant, <<"u">>, State0),
+    {ok, _} = emqx_authn_mnesia:lookup_user(Tenant, <<"u">>, StateOther),
 
     ok = emqx_authn_mnesia:destroy(State0),
 
     {ok, State1} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
-    {error, not_found} = emqx_authn_mnesia:lookup_user(?NO_TENANT, <<"u">>, State1),
-    {ok, _} = emqx_authn_mnesia:lookup_user(?NO_TENANT, <<"u">>, StateOther).
+    {error, not_found} = emqx_authn_mnesia:lookup_user(Tenant, <<"u">>, State1),
+    {ok, _} = emqx_authn_mnesia:lookup_user(Tenant, <<"u">>, StateOther).
 
-t_authenticate(_) ->
+t_authenticate(TestConfig) ->
+    Tenant = proplists:get_value(tenant, TestConfig),
     Config = config(),
     {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
 
     User = #{user_id => <<"u">>, password => <<"p">>},
-    {ok, _} = emqx_authn_mnesia:add_user(?NO_TENANT, User, State),
+    {ok, _} = emqx_authn_mnesia:add_user(Tenant, User, State),
 
     {ok, _} = emqx_authn_mnesia:authenticate(
-        #{username => <<"u">>, password => <<"p">>},
+        #{tenant_id => Tenant, username => <<"u">>, password => <<"p">>},
         State
     ),
     {error, bad_username_or_password} = emqx_authn_mnesia:authenticate(
-        #{username => <<"u">>, password => <<"badpass">>},
+        #{tenant_id => Tenant, username => <<"u">>, password => <<"badpass">>},
         State
     ),
     ignore = emqx_authn_mnesia:authenticate(
-        #{clientid => <<"u">>, password => <<"p">>},
+        #{tenant_id => Tenant, clientid => <<"u">>, password => <<"p">>},
         State
     ).
 
-t_add_user(_) ->
+t_add_user(TestConfig) ->
+    Tenant = proplists:get_value(tenant, TestConfig),
     Config = config(),
     {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
 
     User = #{user_id => <<"u">>, password => <<"p">>},
-    {ok, _} = emqx_authn_mnesia:add_user(?NO_TENANT, User, State),
-    {error, already_exist} = emqx_authn_mnesia:add_user(?NO_TENANT, User, State).
+    {ok, _} = emqx_authn_mnesia:add_user(Tenant, User, State),
+    {error, already_exist} = emqx_authn_mnesia:add_user(Tenant, User, State).
 
-t_delete_user(_) ->
+t_delete_user(TestConfig) ->
+    Tenant = proplists:get_value(tenant, TestConfig),
     Config = config(),
     {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
 
-    {error, not_found} = emqx_authn_mnesia:delete_user(?NO_TENANT, <<"u">>, State),
+    {error, not_found} = emqx_authn_mnesia:delete_user(Tenant, <<"u">>, State),
     User = #{user_id => <<"u">>, password => <<"p">>},
-    {ok, _} = emqx_authn_mnesia:add_user(?NO_TENANT, User, State),
+    {ok, _} = emqx_authn_mnesia:add_user(Tenant, User, State),
 
-    ok = emqx_authn_mnesia:delete_user(?NO_TENANT, <<"u">>, State),
-    {error, not_found} = emqx_authn_mnesia:delete_user(?NO_TENANT, <<"u">>, State).
+    ok = emqx_authn_mnesia:delete_user(Tenant, <<"u">>, State),
+    {error, not_found} = emqx_authn_mnesia:delete_user(Tenant, <<"u">>, State).
 
-t_update_user(_) ->
+t_update_user(TestConfig) ->
+    Tenant = proplists:get_value(tenant, TestConfig),
     Config = config(),
     {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
 
     User = #{user_id => <<"u">>, password => <<"p">>},
-    {ok, _} = emqx_authn_mnesia:add_user(?NO_TENANT, User, State),
+    {ok, _} = emqx_authn_mnesia:add_user(Tenant, User, State),
 
     {error, not_found} = emqx_authn_mnesia:update_user(
-        ?NO_TENANT, <<"u1">>, #{password => <<"p1">>}, State
+        Tenant, <<"u1">>, #{password => <<"p1">>}, State
     ),
     {ok, #{
         user_id := <<"u">>,
         is_superuser := true
     }} = emqx_authn_mnesia:update_user(
-        ?NO_TENANT,
+        Tenant,
         <<"u">>,
         #{password => <<"p1">>, is_superuser => true},
         State
     ),
 
     {ok, _} = emqx_authn_mnesia:authenticate(
-        #{username => <<"u">>, password => <<"p1">>},
+        #{tenant_id => Tenant, username => <<"u">>, password => <<"p1">>},
         State
     ),
 
-    {ok, #{is_superuser := true}} = emqx_authn_mnesia:lookup_user(?NO_TENANT, <<"u">>, State).
+    {ok, #{is_superuser := true}} = emqx_authn_mnesia:lookup_user(Tenant, <<"u">>, State).
 
-t_list_users(_) ->
+t_list_users(TestConfig) ->
+    Tenant = proplists:get_value(tenant, TestConfig),
     Config = config(),
     {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
 
@@ -192,7 +219,7 @@ t_list_users(_) ->
     ],
 
     lists:foreach(
-        fun(U) -> {ok, _} = emqx_authn_mnesia:add_user(?NO_TENANT, U, State) end,
+        fun(U) -> {ok, _} = emqx_authn_mnesia:add_user(Tenant, U, State) end,
         Users
     ),
 
@@ -203,7 +230,7 @@ t_list_users(_) ->
         ],
         meta := #{page := 1, limit := 2, count := 3}
     } = emqx_authn_mnesia:list_users(
-        ?NO_TENANT,
+        Tenant,
         #{<<"page">> => 1, <<"limit">> => 2},
         State
     ),
@@ -212,7 +239,7 @@ t_list_users(_) ->
         data := [#{is_superuser := false, user_id := _}],
         meta := #{page := 2, limit := 2, count := 3}
     } = emqx_authn_mnesia:list_users(
-        ?NO_TENANT,
+        Tenant,
         #{<<"page">> => 2, <<"limit">> => 2},
         State
     ),
@@ -221,7 +248,7 @@ t_list_users(_) ->
         data := [#{is_superuser := false, user_id := <<"u3">>}],
         meta := #{page := 1, limit := 20, count := 1}
     } = emqx_authn_mnesia:list_users(
-        ?NO_TENANT,
+        Tenant,
         #{
             <<"page">> => 1,
             <<"limit">> => 20,
@@ -230,7 +257,8 @@ t_list_users(_) ->
         State
     ).
 
-t_import_users(_) ->
+t_import_users(TestConfig) ->
+    Tenant = proplists:get_value(tenant, TestConfig),
     Config0 = config(),
     Config = Config0#{password_hash_algorithm => #{name => sha256}},
     {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
@@ -238,7 +266,7 @@ t_import_users(_) ->
     ?assertEqual(
         ok,
         emqx_authn_mnesia:import_users(
-            ?NO_TENANT,
+            Tenant,
             sample_filename_and_data(<<"user-credentials.json">>),
             State
         )
@@ -247,7 +275,7 @@ t_import_users(_) ->
     ?assertEqual(
         ok,
         emqx_authn_mnesia:import_users(
-            ?NO_TENANT,
+            Tenant,
             sample_filename_and_data(<<"user-credentials.csv">>),
             State
         )
@@ -256,7 +284,7 @@ t_import_users(_) ->
     ?assertMatch(
         {error, {unsupported_file_format, _}},
         emqx_authn_mnesia:import_users(
-            ?NO_TENANT,
+            Tenant,
             {<<"/file/with/unknown.extension">>, <<>>},
             State
         )
@@ -265,7 +293,7 @@ t_import_users(_) ->
     ?assertEqual(
         {error, unknown_file_format},
         emqx_authn_mnesia:import_users(
-            ?NO_TENANT,
+            Tenant,
             {<<"/file/with/no/extension">>, <<>>},
             State
         )
@@ -274,7 +302,7 @@ t_import_users(_) ->
     ?assertEqual(
         {error, bad_format},
         emqx_authn_mnesia:import_users(
-            ?NO_TENANT,
+            Tenant,
             sample_filename_and_data(<<"user-credentials-malformed-0.json">>),
             State
         )
@@ -283,7 +311,7 @@ t_import_users(_) ->
     ?assertMatch(
         {error, {_, invalid_json}},
         emqx_authn_mnesia:import_users(
-            ?NO_TENANT,
+            Tenant,
             sample_filename_and_data(<<"user-credentials-malformed-1.json">>),
             State
         )
@@ -292,7 +320,7 @@ t_import_users(_) ->
     ?assertEqual(
         {error, bad_format},
         emqx_authn_mnesia:import_users(
-            ?NO_TENANT,
+            Tenant,
             sample_filename_and_data(<<"user-credentials-malformed.csv">>),
             State
         )

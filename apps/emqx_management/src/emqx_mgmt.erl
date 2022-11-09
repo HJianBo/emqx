@@ -344,7 +344,7 @@ call_client(ClientId, Req) ->
     end.
 
 %% @private
--spec do_call_client(emqx_types:clientid(), term()) -> term().
+-spec do_call_client(emqx_clientid:grouped_clientid(), term()) -> term().
 do_call_client(ClientId, Req) ->
     case emqx_cm:lookup_channels(ClientId) of
         [] ->
@@ -415,7 +415,7 @@ subscribe([Node | Nodes], ClientId, TopicTables) ->
 subscribe([], _ClientId, _TopicTables) ->
     {error, channel_not_found}.
 
--spec do_subscribe(emqx_types:clientid(), emqx_types:topic_filters()) ->
+-spec do_subscribe(emqx_clientid:grouped_clientid(), emqx_types:topic_filters()) ->
     {subscribe, _} | {error, atom()}.
 do_subscribe(ClientId, TopicTables) ->
     case ets:lookup(emqx_channel, ClientId) of
@@ -427,12 +427,12 @@ publish(Msg) ->
     emqx_metrics:inc_msg(Msg),
     emqx:publish(Msg).
 
--spec unsubscribe(emqx_types:clientid(), emqx_types:topic()) ->
+-spec unsubscribe(emqx_clientid:grouped_clientid(), emqx_types:topic()) ->
     {unsubscribe, _} | {error, channel_not_found}.
 unsubscribe(ClientId, Topic) ->
     unsubscribe(mria_mnesia:running_nodes(), ClientId, Topic).
 
--spec unsubscribe([node()], emqx_types:clientid(), emqx_types:topic()) ->
+-spec unsubscribe([node()], emqx_clientid:grouped_clientid(), emqx_types:topic()) ->
     {unsubscribe, _} | {error, channel_not_found}.
 unsubscribe([Node | Nodes], ClientId, Topic) ->
     case unwrap_rpc(emqx_management_proto_v3:unsubscribe(Node, ClientId, Topic)) of
@@ -442,7 +442,7 @@ unsubscribe([Node | Nodes], ClientId, Topic) ->
 unsubscribe([], _ClientId, _Topic) ->
     {error, channel_not_found}.
 
--spec do_unsubscribe(emqx_types:clientid(), emqx_types:topic()) ->
+-spec do_unsubscribe(emqx_clientid:grouped_clientid(), emqx_types:topic()) ->
     {unsubscribe, _} | {error, _}.
 do_unsubscribe(ClientId, Topic) ->
     case ets:lookup(emqx_channel, ClientId) of
@@ -450,12 +450,12 @@ do_unsubscribe(ClientId, Topic) ->
         [{_, Pid}] -> Pid ! {unsubscribe, [emqx_topic:parse(Topic)]}
     end.
 
--spec unsubscribe_batch(emqx_types:clientid(), [emqx_types:topic()]) ->
+-spec unsubscribe_batch(emqx_clientid:grouped_clientid(), [emqx_types:topic()]) ->
     {unsubscribe, _} | {error, channel_not_found}.
 unsubscribe_batch(ClientId, Topics) ->
     unsubscribe_batch(mria_mnesia:running_nodes(), ClientId, Topics).
 
--spec unsubscribe_batch([node()], emqx_types:clientid(), [emqx_types:topic()]) ->
+-spec unsubscribe_batch([node()], emqx_clientid:grouped_clientid(), [emqx_types:topic()]) ->
     {unsubscribe_batch, _} | {error, channel_not_found}.
 unsubscribe_batch([Node | Nodes], ClientId, Topics) ->
     case unwrap_rpc(emqx_management_proto_v3:unsubscribe_batch(Node, ClientId, Topics)) of
@@ -465,7 +465,7 @@ unsubscribe_batch([Node | Nodes], ClientId, Topics) ->
 unsubscribe_batch([], _ClientId, _Topics) ->
     {error, channel_not_found}.
 
--spec do_unsubscribe_batch(emqx_types:clientid(), [emqx_types:topic()]) ->
+-spec do_unsubscribe_batch(emqx_clientid:grouped_clientid(), [emqx_types:topic()]) ->
     {unsubscribe_batch, _} | {error, _}.
 do_unsubscribe_batch(ClientId, Topics) ->
     case ets:lookup(emqx_channel, ClientId) of
