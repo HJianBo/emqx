@@ -111,7 +111,7 @@ destroy(_Source) -> ok.
 authorize(
     #{
         username := Username,
-        clientid := Clientid
+        clientid := ClientId
     } = Client,
     PubSub,
     Topic,
@@ -119,7 +119,7 @@ authorize(
 ) ->
     Tenant = maps:get(tenant_id, Client, ?NO_TENANT),
     Rules =
-        case mnesia:dirty_read(?ACL_TABLE, {?ACL_TABLE_CLIENTID, Tenant, Clientid}) of
+        case mnesia:dirty_read(?ACL_TABLE, {?ACL_TABLE_CLIENTID, Tenant, ClientId}) of
             [] -> [];
             [#emqx_acl{rules = Rules0}] when is_list(Rules0) -> Rules0
         end ++

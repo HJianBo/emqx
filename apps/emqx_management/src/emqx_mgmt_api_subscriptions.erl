@@ -40,6 +40,7 @@
 
 -define(SUBS_QSCHEMA, [
     {<<"clientid">>, binary},
+    {<<"tenant_id">>, binary},
     {<<"topic">>, binary},
     {<<"share">>, binary},
     {<<"share_group">>, binary},
@@ -134,10 +135,8 @@ parameters() ->
         }
     ].
 
-%% TODO: Tennat support
-%% 1. only list tenant's subs
-%% 2. remove the mountpoint prefix
-subscriptions(get, #{query_string := QString}) ->
+subscriptions(get, #{query_string := QString0} = Req) ->
+    QString = set_tenant_id(Req, QString0),
     Response =
         case maps:get(<<"node">>, QString, undefined) of
             undefined ->
@@ -171,25 +170,42 @@ subscriptions(get, #{query_string := QString}) ->
             {200, Result}
     end.
 
+set_tenant_id(Req, QString) ->
+    case emqx_dashboard_utils:tenant(Req, undefined) of
+        undefined -> QString;
+        TenantId -> maps:put(<<"tenant_id">>, TenantId, QString)
+    end.
+
 format(Items) when is_list(Items) ->
     [format(Item) || Item <- Items];
 format({{Subscriber, Topic}, Options}) ->
     format({Subscriber, Topic, Options});
 format({_Subscriber, Topic, Options}) ->
+    SubId = maps:get(subid, Options),
     maps:merge(
         #{
-            topic => get_topic(Topic, Options),
-            clientid => subid_to_clientid(maps:get(subid, Options)),
+            topic => get_topic(Topic, SubId, Options),
+            clientid => subid_to_clientid(SubId),
             node => node()
         },
         maps:with([qos, nl, rap, rh], Options)
     ).
 
-get_topic(Topic, #{share := <<"$queue">> = Group}) ->
+get_topic(Topic0, {TenantId, ClientId}, Options) ->
+    Prefix0 = emqx_config:get([tenant, topic_prefix], <<"">>),
+    Prefix = emqx_mountpoint:replvar(Prefix0, #{tenant_id => TenantId}),
+    PrefixLen = erlang:byte_size(Prefix),
+    Topic =
+        case Topic0 of
+            <<Prefix:PrefixLen/binary, SubTopic/binary>> -> SubTopic;
+            _ -> Topic0
+        end,
+    get_topic(Topic, ClientId, Options);
+get_topic(Topic, _SubId, #{share := <<"$queue">> = Group}) ->
     filename:join([Group, Topic]);
-get_topic(Topic, #{share := Group}) ->
+get_topic(Topic, _SubId, #{share := Group}) ->
     filename:join([<<"$share">>, Group, Topic]);
-get_topic(Topic, _) ->
+get_topic(Topic, _, _) ->
     Topic.
 
 subid_to_clientid(SubId) when is_tuple(SubId) ->
@@ -236,16 +252,24 @@ run_fuzzy_filter(E = {{_, Topic}, _}, [{topic, match, TopicFilter} | Fuzzy]) ->
 %% Query String to Match Spec
 
 qs2ms(Qs) ->
-    MtchHead = qs2ms(Qs, {{'_', '_'}, #{}}),
-    [{MtchHead, [], ['$_']}].
+    MatchHead = qs2ms(Qs, {{'_', '_'}, #{}}),
+    [{MatchHead, [], ['$_']}].
 
-qs2ms([], MtchHead) ->
-    MtchHead;
-qs2ms([{Key, '=:=', Value} | More], MtchHead) ->
-    qs2ms(More, update_ms(Key, Value, MtchHead)).
+qs2ms([], MatchHead) ->
+    MatchHead;
+qs2ms([{Key, '=:=', Value} | More], MatchHead) ->
+    qs2ms(More, update_ms(Key, Value, MatchHead)).
 
+update_ms(tenant_id, X, {{Pid, Topic}, Opts}) ->
+    case maps:find(subid, Opts) of
+        {ok, ClientId} -> {{Pid, Topic}, Opts#{subid => {X, ClientId}}};
+        error -> {{Pid, Topic}, Opts#{subid => {X, '_'}}}
+    end;
 update_ms(clientid, X, {{Pid, Topic}, Opts}) ->
-    {{Pid, Topic}, Opts#{subid => X}};
+    case maps:find(subid, Opts) of
+        {ok, {TenantId, _}} -> {{Pid, Topic}, Opts#{subid => {TenantId, X}}};
+        error -> {{Pid, Topic}, Opts#{subid => X}}
+    end;
 update_ms(topic, X, {{Pid, _Topic}, Opts}) ->
     {{Pid, X}, Opts};
 update_ms(share_group, X, {{Pid, Topic}, Opts}) ->

@@ -252,7 +252,7 @@ publish_result_to_http_reply(Message, PublishResult) ->
 %% @hidden Reply batch publish result.
 %% 200 if all published OK.
 %% 202 if at least one message matched no subscribers.
-%% 503 for temp errors duing EMQX restart
+%% 503 for temp errors during EMQX restart
 publish_results_to_http_reply([_ | _] = ResList) ->
     {Codes0, BodyL} = lists:unzip(ResList),
     Codes = lists:usort(Codes0),

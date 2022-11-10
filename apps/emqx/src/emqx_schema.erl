@@ -394,9 +394,9 @@ fields("tenant") ->
             )},
         {"topic_prefix",
             sc(
-                string(),
+                binary(),
                 #{
-                    default => "$tenants/${tenant_id}/",
+                    default => <<"$tenants/${tenant_id}/">>,
                     desc => ?DESC(tenant_topic_prefix)
                 }
             )}

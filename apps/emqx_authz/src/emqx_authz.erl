@@ -328,14 +328,18 @@ authorize(
 authorize_non_superuser(
     #{
         username := Username,
-        peerhost := IpAddress
+        peerhost := IpAddress,
+        clientid := GroupedClientId
     } = Client,
     PubSub,
     Topic,
     _DefaultResult,
     Sources
 ) ->
-    case do_authorize(Client, PubSub, Topic, sources_with_defaults(Sources)) of
+    ClientId = emqx_clientid:without_tenant(GroupedClientId),
+    case
+        do_authorize(Client#{clientid => ClientId}, PubSub, Topic, sources_with_defaults(Sources))
+    of
         {{matched, allow}, AuthzSource} ->
             log_allowed(#{
                 username => Username,
