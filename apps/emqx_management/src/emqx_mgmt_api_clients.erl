@@ -107,6 +107,7 @@ schema("/clients") ->
             description => <<"List clients">>,
             tags => ?TAGS,
             parameters => [
+                hoconsc:ref(emqx_dashboard_swagger, tenant_id),
                 hoconsc:ref(emqx_dashboard_swagger, page),
                 hoconsc:ref(emqx_dashboard_swagger, limit),
                 {node,
@@ -227,7 +228,10 @@ schema("/clients/:clientid") ->
         get => #{
             description => <<"Get clients info by client ID">>,
             tags => ?TAGS,
-            parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
+            parameters => [
+                {clientid, hoconsc:mk(binary(), #{in => path})},
+                hoconsc:ref(emqx_dashboard_swagger, tenant_id)
+            ],
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(?MODULE, client), #{}),
                 404 => emqx_dashboard_swagger:error_codes(
@@ -239,7 +243,8 @@ schema("/clients/:clientid") ->
             description => <<"Kick out client by client ID">>,
             tags => ?TAGS,
             parameters => [
-                {clientid, hoconsc:mk(binary(), #{in => path})}
+                {clientid, hoconsc:mk(binary(), #{in => path})},
+                hoconsc:ref(emqx_dashboard_swagger, tenant_id)
             ],
             responses => #{
                 204 => <<"Kick out client successfully">>,
@@ -255,7 +260,10 @@ schema("/clients/:clientid/authorization/cache") ->
         get => #{
             description => <<"Get client authz cache in the cluster.">>,
             tags => ?TAGS,
-            parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
+            parameters => [
+                hoconsc:ref(emqx_dashboard_swagger, tenant_id),
+                {clientid, hoconsc:mk(binary(), #{in => path})}
+            ],
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(?MODULE, authz_cache), #{}),
                 404 => emqx_dashboard_swagger:error_codes(
@@ -266,7 +274,10 @@ schema("/clients/:clientid/authorization/cache") ->
         delete => #{
             description => <<"Clean client authz cache in the cluster.">>,
             tags => ?TAGS,
-            parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
+            parameters => [
+                hoconsc:ref(emqx_dashboard_swagger, tenant_id),
+                {clientid, hoconsc:mk(binary(), #{in => path})}
+            ],
             responses => #{
                 204 => <<"Kick out client successfully">>,
                 404 => emqx_dashboard_swagger:error_codes(
@@ -281,7 +292,10 @@ schema("/clients/:clientid/subscriptions") ->
         get => #{
             description => <<"Get client subscriptions">>,
             tags => ?TAGS,
-            parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
+            parameters => [
+                hoconsc:ref(emqx_dashboard_swagger, tenant_id),
+                {clientid, hoconsc:mk(binary(), #{in => path})}
+            ],
             responses => #{
                 200 => hoconsc:mk(
                     hoconsc:array(hoconsc:ref(emqx_mgmt_api_subscriptions, subscription)), #{}
@@ -298,7 +312,10 @@ schema("/clients/:clientid/subscribe") ->
         post => #{
             description => <<"Subscribe">>,
             tags => ?TAGS,
-            parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
+            parameters => [
+                hoconsc:ref(emqx_dashboard_swagger, tenant_id),
+                {clientid, hoconsc:mk(binary(), #{in => path})}
+            ],
             'requestBody' => hoconsc:mk(hoconsc:ref(?MODULE, subscribe)),
             responses => #{
                 200 => hoconsc:ref(emqx_mgmt_api_subscriptions, subscription),
@@ -314,7 +331,10 @@ schema("/clients/:clientid/subscribe/bulk") ->
         post => #{
             description => <<"Subscribe">>,
             tags => ?TAGS,
-            parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
+            parameters => [
+                hoconsc:ref(emqx_dashboard_swagger, tenant_id),
+                {clientid, hoconsc:mk(binary(), #{in => path})}
+            ],
             'requestBody' => hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, subscribe))),
             responses => #{
                 200 => hoconsc:array(hoconsc:ref(emqx_mgmt_api_subscriptions, subscription)),
@@ -330,7 +350,10 @@ schema("/clients/:clientid/unsubscribe") ->
         post => #{
             description => <<"Unsubscribe">>,
             tags => ?TAGS,
-            parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
+            parameters => [
+                hoconsc:ref(emqx_dashboard_swagger, tenant_id),
+                {clientid, hoconsc:mk(binary(), #{in => path})}
+            ],
             'requestBody' => hoconsc:mk(hoconsc:ref(?MODULE, unsubscribe)),
             responses => #{
                 204 => <<"Unsubscribe OK">>,
@@ -346,7 +369,10 @@ schema("/clients/:clientid/unsubscribe/bulk") ->
         post => #{
             description => <<"Unsubscribe">>,
             tags => ?TAGS,
-            parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
+            parameters => [
+                hoconsc:ref(emqx_dashboard_swagger, tenant_id),
+                {clientid, hoconsc:mk(binary(), #{in => path})}
+            ],
             'requestBody' => hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, unsubscribe))),
             responses => #{
                 204 => <<"Unsubscribe OK">>,
@@ -362,7 +388,10 @@ schema("/clients/:clientid/keepalive") ->
         put => #{
             description => <<"Set the online client keepalive by seconds">>,
             tags => ?TAGS,
-            parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
+            parameters => [
+                hoconsc:ref(emqx_dashboard_swagger, tenant_id),
+                {clientid, hoconsc:mk(binary(), #{in => path})}
+            ],
             'requestBody' => hoconsc:mk(hoconsc:ref(?MODULE, keepalive)),
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(?MODULE, client), #{}),
@@ -993,6 +1022,8 @@ get_grouped_clientid(#{bindings := #{clientid := ClientId}} = Req) ->
     TenantId = emqx_dashboard_utils:tenant(Req),
     emqx_clientid:with_tenant(TenantId, ClientId).
 
+warp_topic(Topic, ?NO_TENANT) ->
+    Topic;
 warp_topic(Topic, undefined) ->
     Topic;
 warp_topic(Topic, TenantId) ->
@@ -1003,6 +1034,8 @@ warp_topic(Topic, TenantId) ->
         false -> <<Prefix/binary, Topic/binary>>
     end.
 
+unwarp_topic(Topics, undefined) ->
+    Topics;
 unwarp_topic(Topics, TenantId) when is_list(Topics) ->
     Prefix0 = emqx_config:get([tenant, topic_prefix], <<"">>),
     Prefix = emqx_mountpoint:replvar(Prefix0, #{tenant_id => TenantId}),

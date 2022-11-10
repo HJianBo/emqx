@@ -84,6 +84,7 @@ parameters() ->
     [
         hoconsc:ref(emqx_dashboard_swagger, page),
         hoconsc:ref(emqx_dashboard_swagger, limit),
+        hoconsc:ref(emqx_dashboard_swagger, tenant_id),
         {
             node,
             hoconsc:mk(binary(), #{
@@ -185,7 +186,7 @@ format({_Subscriber, Topic, Options}) ->
     maps:merge(
         #{
             topic => get_topic(Topic, SubId, Options),
-            clientid => subid_to_clientid(SubId),
+            clientid => emqx_clientid:without_tenant(SubId),
             node => node()
         },
         maps:with([qos, nl, rap, rh], Options)
@@ -207,9 +208,6 @@ get_topic(Topic, _SubId, #{share := Group}) ->
     filename:join([<<"$share">>, Group, Topic]);
 get_topic(Topic, _, _) ->
     Topic.
-
-subid_to_clientid(SubId) when is_tuple(SubId) ->
-    emqx_clientid:without_tenant(SubId).
 
 %%--------------------------------------------------------------------
 %% Query Function

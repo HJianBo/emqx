@@ -363,7 +363,7 @@ schema("/authentication/:id/users") ->
         post => #{
             tags => ?API_TAGS_GLOBAL,
             description => ?DESC(authentication_id_users_post),
-            parameters => [param_auth_id()],
+            parameters => [param_auth_id(), ref(emqx_dashboard_swagger, tenant_id)],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 ref(request_user_create),
                 request_user_create_examples()
@@ -384,6 +384,7 @@ schema("/authentication/:id/users") ->
                 param_auth_id(),
                 ref(emqx_dashboard_swagger, page),
                 ref(emqx_dashboard_swagger, limit),
+                ref(emqx_dashboard_swagger, tenant_id),
                 {like_user_id,
                     mk(binary(), #{
                         in => query,
@@ -456,7 +457,9 @@ schema("/authentication/:id/users/:user_id") ->
         get => #{
             tags => ?API_TAGS_GLOBAL,
             description => ?DESC(authentication_id_users_user_id_get),
-            parameters => [param_auth_id(), param_user_id()],
+            parameters => [
+                ref(emqx_dashboard_swagger, tenant_id), param_auth_id(), param_user_id()
+            ],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_examples(
                     ref(response_user),
@@ -468,7 +471,9 @@ schema("/authentication/:id/users/:user_id") ->
         put => #{
             tags => ?API_TAGS_GLOBAL,
             description => ?DESC(authentication_id_users_user_id_put),
-            parameters => [param_auth_id(), param_user_id()],
+            parameters => [
+                ref(emqx_dashboard_swagger, tenant_id), param_auth_id(), param_user_id()
+            ],
             'requestBody' => emqx_dashboard_swagger:schema_with_examples(
                 ref(request_user_update),
                 request_user_update_examples()
@@ -485,7 +490,9 @@ schema("/authentication/:id/users/:user_id") ->
         delete => #{
             tags => ?API_TAGS_GLOBAL,
             description => ?DESC(authentication_id_users_user_id_delete),
-            parameters => [param_auth_id(), param_user_id()],
+            parameters => [
+                ref(emqx_dashboard_swagger, tenant_id), param_auth_id(), param_user_id()
+            ],
             responses => #{
                 204 => <<"User deleted">>,
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
@@ -498,7 +505,12 @@ schema("/listeners/:listener_id/authentication/:id/users/:user_id") ->
         get => #{
             tags => ?API_TAGS_SINGLE,
             description => ?DESC(listeners_listener_id_authentication_id_users_user_id_get),
-            parameters => [param_listener_id(), param_auth_id(), param_user_id()],
+            parameters => [
+                ref(emqx_dashboard_swagger, tenant_id),
+                param_listener_id(),
+                param_auth_id(),
+                param_user_id()
+            ],
             responses => #{
                 200 => emqx_dashboard_swagger:schema_with_example(
                     ref(response_user),
@@ -510,7 +522,12 @@ schema("/listeners/:listener_id/authentication/:id/users/:user_id") ->
         put => #{
             tags => ?API_TAGS_SINGLE,
             description => ?DESC(listeners_listener_id_authentication_id_users_user_id_put),
-            parameters => [param_listener_id(), param_auth_id(), param_user_id()],
+            parameters => [
+                ref(emqx_dashboard_swagger, tenant_id),
+                param_listener_id(),
+                param_auth_id(),
+                param_user_id()
+            ],
             'requestBody' => emqx_dashboard_swagger:schema_with_example(
                 ref(request_user_update),
                 request_user_update_examples()
@@ -527,7 +544,12 @@ schema("/listeners/:listener_id/authentication/:id/users/:user_id") ->
         delete => #{
             tags => ?API_TAGS_SINGLE,
             description => ?DESC(listeners_listener_id_authentication_id_users_user_id_delete),
-            parameters => [param_listener_id(), param_auth_id(), param_user_id()],
+            parameters => [
+                ref(emqx_dashboard_swagger, tenant_id),
+                param_listener_id(),
+                param_auth_id(),
+                param_user_id()
+            ],
             responses => #{
                 204 => <<"User deleted">>,
                 404 => error_codes([?NOT_FOUND], <<"Not Found">>)
@@ -692,7 +714,7 @@ authenticator_users(post, Req = #{bindings := #{id := AuthenticatorID}, body := 
 authenticator_users(
     get, Req = #{bindings := #{id := AuthenticatorID}, query_string := QueryString}
 ) ->
-    %% In lists APIs, undefiend tenant means query all
+    %% In lists APIs, undefined tenant means query all
     Tenant = tenant(Req, undefined),
     list_users(?GLOBAL, AuthenticatorID, Tenant, QueryString).
 

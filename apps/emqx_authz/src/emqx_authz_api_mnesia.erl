@@ -101,6 +101,7 @@ schema("/authorization/sources/built_in_database/username") ->
                     [
                         ref(emqx_dashboard_swagger, page),
                         ref(emqx_dashboard_swagger, limit),
+                        ref(emqx_dashboard_swagger, tenant_id),
                         {like_username,
                             mk(binary(), #{
                                 in => query,
@@ -120,6 +121,7 @@ schema("/authorization/sources/built_in_database/username") ->
             #{
                 tags => [<<"authorization">>],
                 description => ?DESC(users_username_post),
+                parameters => [ref(emqx_dashboard_swagger, tenant_id)],
                 'requestBody' => swagger_with_example(
                     {rules_for_username, ?TYPE_ARRAY},
                     {username, ?POST_ARRAY_EXAMPLE}
@@ -147,6 +149,7 @@ schema("/authorization/sources/built_in_database/clientid") ->
                     [
                         ref(emqx_dashboard_swagger, page),
                         ref(emqx_dashboard_swagger, limit),
+                        ref(emqx_dashboard_swagger, tenant_id),
                         {like_clientid,
                             mk(
                                 binary(),
@@ -169,6 +172,7 @@ schema("/authorization/sources/built_in_database/clientid") ->
             #{
                 tags => [<<"authorization">>],
                 description => ?DESC(users_clientid_post),
+                parameters => [ref(emqx_dashboard_swagger, tenant_id)],
                 'requestBody' => swagger_with_example(
                     {rules_for_clientid, ?TYPE_ARRAY},
                     {clientid, ?POST_ARRAY_EXAMPLE}
@@ -189,7 +193,7 @@ schema("/authorization/sources/built_in_database/username/:username") ->
             #{
                 tags => [<<"authorization">>],
                 description => ?DESC(user_username_get),
-                parameters => [ref(username)],
+                parameters => [ref(username), ref(emqx_dashboard_swagger, tenant_id)],
                 responses =>
                     #{
                         200 => swagger_with_example(
@@ -205,7 +209,7 @@ schema("/authorization/sources/built_in_database/username/:username") ->
             #{
                 tags => [<<"authorization">>],
                 description => ?DESC(user_username_put),
-                parameters => [ref(username)],
+                parameters => [ref(username), ref(emqx_dashboard_swagger, tenant_id)],
                 'requestBody' => swagger_with_example(
                     {rules_for_username, ?TYPE_REF},
                     {username, ?PUT_MAP_EXAMPLE}
@@ -222,7 +226,7 @@ schema("/authorization/sources/built_in_database/username/:username") ->
             #{
                 tags => [<<"authorization">>],
                 description => ?DESC(user_username_delete),
-                parameters => [ref(username)],
+                parameters => [ref(username), ref(emqx_dashboard_swagger, tenant_id)],
                 responses =>
                     #{
                         204 => <<"Deleted">>,
@@ -242,7 +246,7 @@ schema("/authorization/sources/built_in_database/clientid/:clientid") ->
             #{
                 tags => [<<"authorization">>],
                 description => ?DESC(user_clientid_get),
-                parameters => [ref(clientid)],
+                parameters => [ref(clientid), ref(emqx_dashboard_swagger, tenant_id)],
                 responses =>
                     #{
                         200 => swagger_with_example(
@@ -258,7 +262,7 @@ schema("/authorization/sources/built_in_database/clientid/:clientid") ->
             #{
                 tags => [<<"authorization">>],
                 description => ?DESC(user_clientid_put),
-                parameters => [ref(clientid)],
+                parameters => [ref(clientid), ref(emqx_dashboard_swagger, tenant_id)],
                 'requestBody' => swagger_with_example(
                     {rules_for_clientid, ?TYPE_REF},
                     {clientid, ?PUT_MAP_EXAMPLE}
@@ -275,7 +279,7 @@ schema("/authorization/sources/built_in_database/clientid/:clientid") ->
             #{
                 tags => [<<"authorization">>],
                 description => ?DESC(user_clientid_delete),
-                parameters => [ref(clientid)],
+                parameters => [ref(clientid), ref(emqx_dashboard_swagger, tenant_id)],
                 responses =>
                     #{
                         204 => <<"Deleted">>,
@@ -295,6 +299,7 @@ schema("/authorization/sources/built_in_database/all") ->
             #{
                 tags => [<<"authorization">>],
                 description => ?DESC(rules_for_all_get),
+                parameters => [ref(emqx_dashboard_swagger, tenant_id)],
                 responses =>
                     #{200 => swagger_with_example({rules, ?TYPE_REF}, {all, ?PUT_MAP_EXAMPLE})}
             },
@@ -302,6 +307,7 @@ schema("/authorization/sources/built_in_database/all") ->
             #{
                 tags => [<<"authorization">>],
                 description => ?DESC(rules_for_all_post),
+                parameters => [ref(emqx_dashboard_swagger, tenant_id)],
                 'requestBody' =>
                     swagger_with_example({rules, ?TYPE_REF}, {all, ?PUT_MAP_EXAMPLE}),
                 responses =>
