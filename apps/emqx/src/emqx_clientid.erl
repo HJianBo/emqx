@@ -49,9 +49,13 @@ with_tenant(?NO_TENANT, ClientId) when ?IS_NORMAL_ID(ClientId) ->
     ClientId;
 with_tenant(?NO_TENANT, {_, ClientId}) ->
     ClientId;
-with_tenant(Tenant, _GroupedClientId = {_, ClientId}) ->
+with_tenant(Tenant, _GroupedClientId = {_, ClientId}) when
+    ?IS_TENANT(Tenant), ?IS_NORMAL_ID(ClientId)
+->
     {Tenant, ClientId};
-with_tenant(Tenant, ClientId) when ?IS_NORMAL_ID(ClientId) ->
+with_tenant(Tenant, ClientId) when
+    ?IS_TENANT(Tenant), ?IS_NORMAL_ID(ClientId)
+->
     {Tenant, ClientId};
 with_tenant(Tenant, ClientId) ->
     error(badarg, [Tenant, ClientId]).
@@ -68,7 +72,7 @@ update_clientid(Id, ClientId) ->
 is_undefined_clientid(undefined) -> true;
 is_undefined_clientid({_, undefined}) -> true;
 is_undefined_clientid({_, _}) -> false;
-is_undefined_clientid(I) when is_binary(I) -> false;
+is_undefined_clientid(I) when ?IS_NORMAL_ID(I) -> false;
 is_undefined_clientid(V) -> error(badarg, [V]).
 
 %%--------------------------------------------------------------------
@@ -78,10 +82,36 @@ is_undefined_clientid(V) -> error(badarg, [V]).
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
 
-comp_uncomp_test() ->
-    ?assertEqual(
-        {<<"test_tenant">>, <<"client1">>},
-        with_tenant(<<"test_tenant">>, <<"client1">>)
-    ).
+with_tenant_test() ->
+    {<<"t">>, <<"id">>} = with_tenant(<<"t">>, <<"id">>),
+    {<<"t2">>, <<"id">>} = with_tenant(<<"t2">>, {<<"t">>, <<"id">>}),
+    <<"id">> = with_tenant(?NO_TENANT, {<<"t">>, <<"id">>}),
+    <<"id">> = with_tenant(?NO_TENANT, <<"id">>),
+    undefined = with_tenant(?NO_TENANT, undefined),
+
+    ?assertError(badarg, with_tenant(?NO_TENANT, 0)),
+    ?assertError(badarg, with_tenant(?NO_TENANT, "")),
+    ?assertError(badarg, with_tenant("a", <<"id">>)),
+    ?assertError(badarg, with_tenant(123, <<"id">>)),
+    ?assertError(badarg, with_tenant(abc, <<"id">>)).
+
+without_tenant_test() ->
+    <<"id">> = without_tenant({<<"t">>, <<"id">>}),
+    <<"id">> = without_tenant(<<"id">>),
+    atom_client_id = without_tenant(atom_client_id),
+    ?assertError(badarg, without_tenant("")).
+
+update_clientid_test() ->
+    {<<"t">>, <<"id2">>} = update_clientid(<<"id2">>, {<<"t">>, <<"id1">>}),
+    <<"id2">> = update_clientid(<<"id2">>, <<"id1">>),
+    ?assertError(badarg, update_clientid(<<"id2">>, "bad_grouped_id")).
+
+undefined_clientid_test() ->
+    true = is_undefined_clientid(undefined),
+    true = is_undefined_clientid(with_tenant(<<"t">>, undefined)),
+    false = is_undefined_clientid(with_tenant(<<"t">>, <<"t">>)),
+    false = is_undefined_clientid(with_tenant(?NO_TENANT, <<"t">>)),
+    false = is_undefined_clientid(with_tenant(?NO_TENANT, atom_clientid)),
+    ?assertError(badarg, is_undefined_clientid("bad_grouped_id")).
 
 -endif.

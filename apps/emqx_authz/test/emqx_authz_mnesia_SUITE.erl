@@ -24,10 +24,17 @@
 -include_lib("common_test/include/ct.hrl").
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [
+        {group, no_tenant},
+        {group, tenant_foo}
+    ].
 
 groups() ->
-    [].
+    CTs = emqx_common_test_helpers:all(?MODULE),
+    [
+        {no_tenant, [], CTs},
+        {tenant_foo, [], CTs}
+    ].
 
 init_per_suite(Config) ->
     ok = emqx_common_test_helpers:start_apps(
@@ -39,6 +46,14 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
     ok = emqx_authz_test_lib:restore_authorizers(),
     ok = emqx_common_test_helpers:stop_apps([emqx_authz]).
+
+init_per_group(no_tenant, Config) ->
+    [{tenant, ?NO_TENANT} | Config];
+init_per_group(tenant_foo, Config) ->
+    [{tenant, <<"tenant_foo">>} | Config].
+
+end_per_group(_Group, _Config) ->
+    ok.
 
 init_per_testcase(_TestCase, Config) ->
     ok = emqx_authz_test_lib:reset_authorizers(),
@@ -53,21 +68,24 @@ set_special_configs(emqx_authz) ->
 set_special_configs(_) ->
     ok.
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Testcases
-%%------------------------------------------------------------------------------
-t_username_topic_rules(_Config) ->
-    ok = test_topic_rules(username).
+%%--------------------------------------------------------------------
+t_username_topic_rules(Config) ->
+    Tenant = proplists:get_value(tenant, Config),
+    ok = test_topic_rules(Tenant, username).
 
-t_clientid_topic_rules(_Config) ->
-    ok = test_topic_rules(clientid).
+t_clientid_topic_rules(Config) ->
+    Tenant = proplists:get_value(tenant, Config),
+    ok = test_topic_rules(Tenant, clientid).
 
-t_all_topic_rules(_Config) ->
-    ok = test_topic_rules(all).
+t_all_topic_rules(Config) ->
+    Tenant = proplists:get_value(tenant, Config),
+    ok = test_topic_rules(Tenant, all).
 
-test_topic_rules(Key) ->
+test_topic_rules(Tenant, Key) ->
     ClientInfo = #{
-        tenant_id => ?NO_TENANT,
+        tenant_id => Tenant,
         clientid => <<"clientid">>,
         username => <<"username">>,
         peerhost => {127, 0, 0, 1},
@@ -85,9 +103,10 @@ test_topic_rules(Key) ->
 
     ok = emqx_authz_test_lib:test_deny_topic_rules(ClientInfo, SetupSamples).
 
-t_normalize_rules(_Config) ->
+t_normalize_rules(Config) ->
+    Tenant = proplists:get_value(tenant, Config),
     ClientInfo = #{
-        tenant_id => ?NO_TENANT,
+        tenant_id => Tenant,
         clientid => <<"clientid">>,
         username => <<"username">>,
         peerhost => {127, 0, 0, 1},
@@ -96,7 +115,7 @@ t_normalize_rules(_Config) ->
     },
 
     ok = emqx_authz_mnesia:store_rules(
-        {username, ?NO_TENANT, <<"username">>},
+        {username, Tenant, <<"username">>},
         [{allow, publish, "t"}]
     ),
 
@@ -109,7 +128,7 @@ t_normalize_rules(_Config) ->
         error,
         {invalid_rule, _},
         emqx_authz_mnesia:store_rules(
-            {username, ?NO_TENANT, <<"username">>},
+            {username, Tenant, <<"username">>},
             [[allow, publish, <<"t">>]]
         )
     ),
@@ -118,7 +137,7 @@ t_normalize_rules(_Config) ->
         error,
         {invalid_rule_action, _},
         emqx_authz_mnesia:store_rules(
-            {username, ?NO_TENANT, <<"username">>},
+            {username, Tenant, <<"username">>},
             [{allow, pub, <<"t">>}]
         )
     ),
@@ -127,14 +146,14 @@ t_normalize_rules(_Config) ->
         error,
         {invalid_rule_permission, _},
         emqx_authz_mnesia:store_rules(
-            {username, ?NO_TENANT, <<"username">>},
+            {username, Tenant, <<"username">>},
             [{accept, publish, <<"t">>}]
         )
     ).
 
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 %% Helpers
-%%------------------------------------------------------------------------------
+%%--------------------------------------------------------------------
 
 raw_mnesia_authz_config() ->
     #{
@@ -143,6 +162,7 @@ raw_mnesia_authz_config() ->
     }.
 
 setup_client_samples(ClientInfo, Samples, Key) ->
+    Tenant = maps:get(tenant_id, ClientInfo),
     ok = emqx_authz_mnesia:purge_rules(),
     Rules = lists:flatmap(
         fun(#{topics := Topics, permission := Permission, action := Action}) ->
@@ -158,9 +178,9 @@ setup_client_samples(ClientInfo, Samples, Key) ->
     #{username := Username, clientid := ClientId} = ClientInfo,
     Who =
         case Key of
-            username -> {username, ?NO_TENANT, Username};
-            clientid -> {clientid, ?NO_TENANT, ClientId};
-            all -> {all, ?NO_TENANT}
+            username -> {username, Tenant, Username};
+            clientid -> {clientid, Tenant, ClientId};
+            all -> {all, Tenant}
         end,
     ok = emqx_authz_mnesia:store_rules(Who, Rules).
 

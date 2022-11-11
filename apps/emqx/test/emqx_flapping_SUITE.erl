@@ -19,6 +19,7 @@
 -compile(export_all).
 -compile(nowarn_export_all).
 
+-include("emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 all() -> emqx_common_test_helpers:all(?MODULE).
@@ -49,6 +50,7 @@ end_per_suite(_Config) ->
 t_detect_check(_) ->
     ClientInfo = #{
         zone => default,
+        tenant_id => ?NO_TENANT,
         listener => {tcp, default},
         clientid => <<"client007">>,
         peerhost => {127, 0, 0, 1}
@@ -76,6 +78,7 @@ t_detect_check(_) ->
 t_expired_detecting(_) ->
     ClientInfo = #{
         zone => default,
+        tenant_id => ?NO_TENANT,
         listener => {tcp, default},
         clientid => <<"client008">>,
         peerhost => {127, 0, 0, 1}

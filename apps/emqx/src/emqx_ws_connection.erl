@@ -388,6 +388,7 @@ get_peer_info(Type, Listener, Req, Opts) ->
             PeerSNI = maps:get(authority, ProxyInfo, undefined),
             {SourceName, SourceSSL, PeerSNI};
         _ ->
+            %% FIXME: sni
             {get_peer(Req, Opts), cowboy_req:cert(Req), undefined}
     end.
 

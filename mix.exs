@@ -51,7 +51,7 @@ defmodule EMQXUmbrella.MixProject do
       {:gproc, github: "uwiger/gproc", tag: "0.8.0", override: true},
       {:jiffy, github: "emqx/jiffy", tag: "1.0.5", override: true},
       {:cowboy, github: "emqx/cowboy", tag: "2.9.0", override: true},
-      {:esockd, github: "emqx/esockd", tag: "5.9.4", override: true},
+      {:esockd, github: "emqx/esockd", tag: "5.9.5", override: true},
       {:ekka, github: "emqx/ekka", tag: "0.13.6", override: true},
       {:gen_rpc, github: "emqx/gen_rpc", tag: "2.8.1", override: true},
       {:grpc, github: "emqx/grpc-erl", tag: "0.6.7", override: true},
@@ -165,7 +165,8 @@ defmodule EMQXUmbrella.MixProject do
             :emqx_prometheus,
             :emqx_auto_subscribe,
             :emqx_slow_subs,
-            :emqx_plugins
+            :emqx_plugins,
+            :emqx_tenancy
           ],
           steps: steps,
           strip_beams: false
@@ -224,6 +225,7 @@ defmodule EMQXUmbrella.MixProject do
         emqx_plugins: :permanent,
         emqx_mix: :none
       ] ++
+      if(enable_tenancy?(), do: [emqx_tenancy: :permanent], else: [emqx_tenancy: :permanent]) ++
       if(enable_quicer?(), do: [quicer: :permanent], else: []) ++
       if(enable_bcrypt?(), do: [bcrypt: :permanent], else: []) ++
       if(enable_jq?(), do: [jq: :permanent], else: []) ++
@@ -647,6 +649,12 @@ defmodule EMQXUmbrella.MixProject do
     ]) or "1" == System.get_env("BUILD_WITH_QUIC")
   end
 
+  defp enable_tenancy?() do
+    not Enum.any?([
+      build_without_tenancy?()
+    ]) or "1" == System.get_env("BUILD_WITH_TENANCY")
+  end
+
   defp enable_rocksdb?() do
     not Enum.any?([
       build_without_rocksdb?(),
@@ -695,6 +703,12 @@ defmodule EMQXUmbrella.MixProject do
 
   defp build_without_quic?() do
     opt = System.get_env("BUILD_WITHOUT_QUIC", "false")
+
+    String.downcase(opt) != "false"
+  end
+
+  defp build_without_tenancy?() do
+    opt = System.get_env("BUILD_WITHOUT_TENANCY", "false")
 
     String.downcase(opt) != "false"
   end

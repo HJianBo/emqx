@@ -83,7 +83,7 @@
 -callback match_messages(context(), topic(), cursor()) -> {ok, list(), cursor()}.
 -callback clear_expired(context()) -> ok.
 -callback clean(context()) -> ok.
--callback clean_by_clientid(context(), emqx_types:clientid()) -> ok.
+-callback clean_by_clientid(context(), emqx_clientid:grouped_clientid()) -> ok.
 -callback size(context()) -> non_neg_integer().
 
 %%--------------------------------------------------------------------
@@ -313,7 +313,7 @@ clean(Context) ->
     Mod = get_backend_module(),
     Mod:clean(Context).
 
--spec clean_by_clientid(context(), emqx_types:clientid()) -> ok.
+-spec clean_by_clientid(context(), emqx_clientid:grouped_clientid()) -> ok.
 clean_by_clientid(Context, ClientId) ->
     Mod = get_backend_module(),
     Mod:clean_by_clientid(Context, ClientId).

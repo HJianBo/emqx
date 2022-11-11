@@ -249,6 +249,7 @@ t_authenticate(Config) when is_list(Config) ->
         zone => default,
         listener => ListenerID,
         protocol => mqtt,
+        clientid => <<"clientid">>,
         username => <<"good">>,
         password => <<"any">>
     },

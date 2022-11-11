@@ -398,10 +398,10 @@ relx_apps(ReleaseType, Edition) ->
             emqx_slow_subs,
             emqx_plugins
         ] ++
+        [emqx_tenancy || is_tenancy_supported()] ++
         [quicer || is_quicer_supported()] ++
         [bcrypt || provide_bcrypt_release(ReleaseType)] ++
         [jq || is_jq_supported()] ++
-        [emqx_tenancy || is_tenancy_supported()] ++
         [{observer, load} || is_app(observer)] ++
         relx_apps_per_edition(Edition).
 

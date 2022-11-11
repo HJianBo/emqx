@@ -1576,6 +1576,7 @@ setup_tenant(ConnPkt, Channel = #channel{conninfo = ConnInfo}) ->
             ),
             case Pipe of
                 {ok, _, NClientInfo} ->
+                    ?tp(debug, setup_tenant, #{tenant_id => Tenant}),
                     {ok, ConnPkt, Channel#channel{clientinfo = NClientInfo}};
                 {error, ReasonCode, NClientInfo} ->
                     {error, ReasonCode, Channel#channel{clientinfo = NClientInfo}}
@@ -1595,10 +1596,10 @@ setup_tenant_id(Tenant, ClientInfo = #{clientid := ClientId}) ->
     {ok, Tenant, NClientInfo}.
 
 check_tenant_id_allowed(Tenant, _ClientInfo) ->
-    case emqx_config:get([tenant, allow_undefined_tenant_access], true) of
+    case emqx_config:get([tenant, allow_non_tenant_access], true) of
         false when Tenant =:= ?NO_TENANT ->
             {error, ?RC_BANNED};
-        true ->
+        _ ->
             ok
     end.
 
@@ -2223,10 +2224,14 @@ will_delay_interval(WillMsg) ->
         0
     ).
 
-publish_will_msg(ClientInfo, Msg = #message{topic = Topic}) ->
+publish_will_msg(
+    ClientInfo = #{mountpoint := MountPoint},
+    Msg = #message{topic = Topic}
+) ->
     case emqx_access_control:authorize(ClientInfo, publish, Topic) of
         allow ->
-            _ = emqx_broker:publish(Msg),
+            NMsg = emqx_mountpoint:mount(MountPoint, Msg),
+            _ = emqx_broker:publish(NMsg),
             ok;
         deny ->
             ?tp(
