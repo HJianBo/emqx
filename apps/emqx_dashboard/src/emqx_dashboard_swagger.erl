@@ -141,7 +141,19 @@ fields(count) ->
     Meta = #{desc => <<"Results count.">>, required => true},
     [{count, hoconsc:mk(non_neg_integer(), Meta)}];
 fields(meta) ->
-    fields(page) ++ fields(limit) ++ fields(count).
+    fields(page) ++ fields(limit) ++ fields(count);
+fields(tenant_id) ->
+    [
+        {'emqx-tenant-id',
+            ?HOCON(
+                binary(),
+                #{
+                    in => header,
+                    desc => <<"emqx tenant id">>,
+                    example => "tenant_foo"
+                }
+            )}
+    ].
 
 -spec schema_with_example(hocon_schema:type(), term()) -> hocon_schema:field_schema_map().
 schema_with_example(Type, Example) ->
@@ -285,7 +297,10 @@ check_parameter([{Name, Type} | Spec], Bindings, QueryStr, Module, BindingsAcc, 
             Option = #{},
             NewQueryStr = hocon_tconf:check_plain(Schema, QueryStr, Option),
             NewQueryStrAcc = maps:merge(QueryStrAcc, NewQueryStr),
-            check_parameter(Spec, Bindings, QueryStr, Module, BindingsAcc, NewQueryStrAcc)
+            check_parameter(Spec, Bindings, QueryStr, Module, BindingsAcc, NewQueryStrAcc);
+        %% todo check headers
+        header ->
+            check_parameter(Spec, Bindings, QueryStr, Module, BindingsAcc, QueryStrAcc)
     end.
 
 check_request_body(#{body := Body}, Schema, Module, CheckFun, true) ->

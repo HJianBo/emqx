@@ -47,7 +47,9 @@
 
 -export([
     query/4,
-    format_channel_info/1
+    format_channel_info/1,
+    unwarp_topic/2,
+    warp_topic/2
 ]).
 
 %% for batch operation
@@ -65,6 +67,8 @@
     {<<"clean_start">>, atom},
     {<<"proto_name">>, binary},
     {<<"proto_ver">>, integer},
+    {<<"tenant_id">>, binary},
+    {<<"like_tenant_id">>, binary},
     {<<"like_clientid">>, binary},
     {<<"like_username">>, binary},
     {<<"gte_created_at">>, timestamp},
@@ -103,6 +107,7 @@ schema("/clients") ->
             description => <<"List clients">>,
             tags => ?TAGS,
             parameters => [
+                hoconsc:ref(emqx_dashboard_swagger, tenant_id),
                 hoconsc:ref(emqx_dashboard_swagger, page),
                 hoconsc:ref(emqx_dashboard_swagger, limit),
                 {node,
@@ -223,7 +228,10 @@ schema("/clients/:clientid") ->
         get => #{
             description => <<"Get clients info by client ID">>,
             tags => ?TAGS,
-            parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
+            parameters => [
+                {clientid, hoconsc:mk(binary(), #{in => path})},
+                hoconsc:ref(emqx_dashboard_swagger, tenant_id)
+            ],
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(?MODULE, client), #{}),
                 404 => emqx_dashboard_swagger:error_codes(
@@ -235,7 +243,8 @@ schema("/clients/:clientid") ->
             description => <<"Kick out client by client ID">>,
             tags => ?TAGS,
             parameters => [
-                {clientid, hoconsc:mk(binary(), #{in => path})}
+                {clientid, hoconsc:mk(binary(), #{in => path})},
+                hoconsc:ref(emqx_dashboard_swagger, tenant_id)
             ],
             responses => #{
                 204 => <<"Kick out client successfully">>,
@@ -251,7 +260,10 @@ schema("/clients/:clientid/authorization/cache") ->
         get => #{
             description => <<"Get client authz cache in the cluster.">>,
             tags => ?TAGS,
-            parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
+            parameters => [
+                hoconsc:ref(emqx_dashboard_swagger, tenant_id),
+                {clientid, hoconsc:mk(binary(), #{in => path})}
+            ],
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(?MODULE, authz_cache), #{}),
                 404 => emqx_dashboard_swagger:error_codes(
@@ -262,7 +274,10 @@ schema("/clients/:clientid/authorization/cache") ->
         delete => #{
             description => <<"Clean client authz cache in the cluster.">>,
             tags => ?TAGS,
-            parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
+            parameters => [
+                hoconsc:ref(emqx_dashboard_swagger, tenant_id),
+                {clientid, hoconsc:mk(binary(), #{in => path})}
+            ],
             responses => #{
                 204 => <<"Kick out client successfully">>,
                 404 => emqx_dashboard_swagger:error_codes(
@@ -277,7 +292,10 @@ schema("/clients/:clientid/subscriptions") ->
         get => #{
             description => <<"Get client subscriptions">>,
             tags => ?TAGS,
-            parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
+            parameters => [
+                hoconsc:ref(emqx_dashboard_swagger, tenant_id),
+                {clientid, hoconsc:mk(binary(), #{in => path})}
+            ],
             responses => #{
                 200 => hoconsc:mk(
                     hoconsc:array(hoconsc:ref(emqx_mgmt_api_subscriptions, subscription)), #{}
@@ -294,7 +312,10 @@ schema("/clients/:clientid/subscribe") ->
         post => #{
             description => <<"Subscribe">>,
             tags => ?TAGS,
-            parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
+            parameters => [
+                hoconsc:ref(emqx_dashboard_swagger, tenant_id),
+                {clientid, hoconsc:mk(binary(), #{in => path})}
+            ],
             'requestBody' => hoconsc:mk(hoconsc:ref(?MODULE, subscribe)),
             responses => #{
                 200 => hoconsc:ref(emqx_mgmt_api_subscriptions, subscription),
@@ -310,7 +331,10 @@ schema("/clients/:clientid/subscribe/bulk") ->
         post => #{
             description => <<"Subscribe">>,
             tags => ?TAGS,
-            parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
+            parameters => [
+                hoconsc:ref(emqx_dashboard_swagger, tenant_id),
+                {clientid, hoconsc:mk(binary(), #{in => path})}
+            ],
             'requestBody' => hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, subscribe))),
             responses => #{
                 200 => hoconsc:array(hoconsc:ref(emqx_mgmt_api_subscriptions, subscription)),
@@ -326,7 +350,10 @@ schema("/clients/:clientid/unsubscribe") ->
         post => #{
             description => <<"Unsubscribe">>,
             tags => ?TAGS,
-            parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
+            parameters => [
+                hoconsc:ref(emqx_dashboard_swagger, tenant_id),
+                {clientid, hoconsc:mk(binary(), #{in => path})}
+            ],
             'requestBody' => hoconsc:mk(hoconsc:ref(?MODULE, unsubscribe)),
             responses => #{
                 204 => <<"Unsubscribe OK">>,
@@ -342,7 +369,10 @@ schema("/clients/:clientid/unsubscribe/bulk") ->
         post => #{
             description => <<"Unsubscribe">>,
             tags => ?TAGS,
-            parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
+            parameters => [
+                hoconsc:ref(emqx_dashboard_swagger, tenant_id),
+                {clientid, hoconsc:mk(binary(), #{in => path})}
+            ],
             'requestBody' => hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, unsubscribe))),
             responses => #{
                 204 => <<"Unsubscribe OK">>,
@@ -358,7 +388,10 @@ schema("/clients/:clientid/keepalive") ->
         put => #{
             description => <<"Set the online client keepalive by seconds">>,
             tags => ?TAGS,
-            parameters => [{clientid, hoconsc:mk(binary(), #{in => path})}],
+            parameters => [
+                hoconsc:ref(emqx_dashboard_swagger, tenant_id),
+                {clientid, hoconsc:mk(binary(), #{in => path})}
+            ],
             'requestBody' => hoconsc:mk(hoconsc:ref(?MODULE, keepalive)),
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(?MODULE, client), #{}),
@@ -572,51 +605,77 @@ fields(unsubscribe) ->
 %%%==============================================================================================
 %% parameters trans
 
-clients(get, #{query_string := QString}) ->
-    list_clients(QString).
+clients(get, #{query_string := QString} = Req) ->
+    list_clients(set_tenant_id(Req, QString)).
 
-client(get, #{bindings := Bindings}) ->
-    lookup(Bindings);
-client(delete, #{bindings := Bindings}) ->
-    kickout(Bindings).
+client(get, Req) ->
+    lookup(Req);
+client(delete, Req) ->
+    kickout(get_grouped_clientid(Req)).
 
-authz_cache(get, #{bindings := Bindings}) ->
-    get_authz_cache(Bindings);
-authz_cache(delete, #{bindings := Bindings}) ->
-    clean_authz_cache(Bindings).
+authz_cache(get, Req) ->
+    get_authz_cache(get_grouped_clientid(Req));
+authz_cache(delete, Req) ->
+    clean_authz_cache(get_grouped_clientid(Req)).
 
-subscribe(post, #{bindings := #{clientid := ClientID}, body := TopicInfo}) ->
-    Opts = emqx_map_lib:unsafe_atom_key_map(TopicInfo),
-    subscribe(Opts#{clientid => ClientID}).
+subscribe(post, #{bindings := #{clientid := _}, body := TopicInfo} = Req) ->
+    #{topic := Topic} = Opts = emqx_map_lib:unsafe_atom_key_map(TopicInfo),
+    GroupedClientId = get_grouped_clientid(Req),
+    TenantId = emqx_dashboard_utils:tenant(Req, undefined),
+    do_subscribe(GroupedClientId, Opts#{topic => Topic, tenant_id => TenantId}).
 
-subscribe_batch(post, #{bindings := #{clientid := ClientID}, body := TopicInfos}) ->
-    Topics =
-        [
-            emqx_map_lib:unsafe_atom_key_map(TopicInfo)
-         || TopicInfo <- TopicInfos
-        ],
-    subscribe_batch(#{clientid => ClientID, topics => Topics}).
+subscribe_batch(post, #{bindings := #{clientid := _}, body := TopicInfos} = Req) ->
+    GroupedClientId = get_grouped_clientid(Req),
+    case emqx_mgmt:lookup_client({clientid, GroupedClientId}, ?FORMAT_FUN) of
+        [] ->
+            {404, ?CLIENT_ID_NOT_FOUND};
+        _ ->
+            ArgList =
+                [
+                    begin
+                        #{topic := Topic} = Sub1 = emqx_map_lib:unsafe_atom_key_map(Sub),
+                        [GroupedClientId, Topic, maps:with([qos, nl, rap, rh], Sub1)]
+                    end
+                 || Sub <- TopicInfos
+                ],
+            {200, emqx_mgmt_util:batch_operation(?MODULE, do_subscribe, ArgList)}
+    end.
 
-unsubscribe(post, #{bindings := #{clientid := ClientID}, body := TopicInfo}) ->
+unsubscribe(post, #{bindings := #{clientid := _}, body := TopicInfo} = Req) ->
     Topic = maps:get(<<"topic">>, TopicInfo),
-    unsubscribe(#{clientid => ClientID, topic => Topic}).
+    GroupedClientId = get_grouped_clientid(Req),
+    case emqx_mgmt:unsubscribe(GroupedClientId, Topic) of
+        {error, channel_not_found} ->
+            {404, ?CLIENT_ID_NOT_FOUND};
+        {unsubscribe, [{Topic, #{}}]} ->
+            {204}
+    end.
 
-unsubscribe_batch(post, #{bindings := #{clientid := ClientID}, body := TopicInfos}) ->
-    Topics = [Topic || #{<<"topic">> := Topic} <- TopicInfos],
-    unsubscribe_batch(#{clientid => ClientID, topics => Topics}).
+unsubscribe_batch(post, #{bindings := #{clientid := _}, body := TopicInfos} = Req) ->
+    GroupedClientId = get_grouped_clientid(Req),
+    case emqx_mgmt:lookup_client({clientid, GroupedClientId}, ?FORMAT_FUN) of
+        [] ->
+            {404, ?CLIENT_ID_NOT_FOUND};
+        _ ->
+            Topics = [Topic || #{<<"topic">> := Topic} <- TopicInfos],
+            _ = emqx_mgmt:unsubscribe_batch(GroupedClientId, Topics),
+            {204}
+    end.
 
-subscriptions(get, #{bindings := #{clientid := ClientID}}) ->
-    case emqx_mgmt:list_client_subscriptions(ClientID) of
+subscriptions(get, #{bindings := #{clientid := ClientId}} = Req) ->
+    GroupedClientId = get_grouped_clientid(Req),
+    case emqx_mgmt:list_client_subscriptions(GroupedClientId) of
         [] ->
             {200, []};
         {Node, Subs} ->
+            TenantId = emqx_dashboard_utils:tenant(Req),
             Formatter =
                 fun({Topic, SubOpts}) ->
                     maps:merge(
                         #{
                             node => Node,
-                            clientid => ClientID,
-                            topic => Topic
+                            clientid => ClientId,
+                            topic => unwarp_topic(Topic, TenantId)
                         },
                         maps:with([qos, nl, rap, rh], SubOpts)
                     )
@@ -624,13 +683,14 @@ subscriptions(get, #{bindings := #{clientid := ClientID}}) ->
             {200, lists:map(Formatter, Subs)}
     end.
 
-set_keepalive(put, #{bindings := #{clientid := ClientID}, body := Body}) ->
+set_keepalive(put, #{bindings := #{clientid := _}, body := Body} = Req) ->
     case maps:find(<<"interval">>, Body) of
         error ->
             {400, 'BAD_REQUEST', "Interval Not Found"};
         {ok, Interval} ->
-            case emqx_mgmt:set_keepalive(emqx_mgmt_util:urldecode(ClientID), Interval) of
-                ok -> lookup(#{clientid => ClientID});
+            GroupedClientId = get_grouped_clientid(Req),
+            case emqx_mgmt:set_keepalive(GroupedClientId, Interval) of
+                ok -> lookup(Req);
                 {error, not_found} -> {404, ?CLIENT_ID_NOT_FOUND};
                 {error, Reason} -> {400, #{code => 'PARAMS_ERROR', message => Reason}}
             end
@@ -640,7 +700,6 @@ set_keepalive(put, #{bindings := #{clientid := ClientID}, body := Body}) ->
 %% api apply
 
 list_clients(QString) ->
-    %% TODO: need real tenant id
     Result =
         case maps:get(<<"node">>, QString, undefined) of
             undefined ->
@@ -671,29 +730,31 @@ list_clients(QString) ->
         {error, Node, {badrpc, R}} ->
             Message = list_to_binary(io_lib:format("bad rpc call ~p, Reason ~p", [Node, R])),
             {500, #{code => <<"NODE_DOWN">>, message => Message}};
-        Response ->
-            {200, Response}
+        #{data := DataRaw} = Response ->
+            case maps:find(<<"tenant_id">>, QString) of
+                {ok, _} ->
+                    Data = remove_tenant_info(DataRaw),
+                    {200, maps:put(data, Data, Response)};
+                error ->
+                    {200, Response}
+            end
     end.
 
-lookup(#{clientid := ClientID}) ->
-    %% TODO: use real tenant id
-    GroupedClientId = emqx_clientid:with_tenant(
-        ?NO_TENANT,
-        ClientID
-    ),
+lookup(#{bindings := #{clientid := _}} = Req) ->
+    GroupedClientId = get_grouped_clientid(Req),
     case emqx_mgmt:lookup_client({clientid, GroupedClientId}, ?FORMAT_FUN) of
         [] ->
             {404, ?CLIENT_ID_NOT_FOUND};
-        ClientInfo ->
-            {200, hd(ClientInfo)}
+        [ClientInfo] ->
+            case emqx_dashboard_utils:tenant(Req, undefined) of
+                undefined ->
+                    {200, ClientInfo};
+                _ ->
+                    {200, remove_tenant_info(ClientInfo)}
+            end
     end.
 
-kickout(#{clientid := ClientID}) ->
-    %% TODO: use real tenant id
-    GroupedClientId = emqx_clientid:with_tenant(
-        ?NO_TENANT,
-        ClientID
-    ),
+kickout(GroupedClientId) ->
     case emqx_mgmt:kickout_client({GroupedClientId, ?FORMAT_FUN}) of
         {error, not_found} ->
             {404, ?CLIENT_ID_NOT_FOUND};
@@ -701,12 +762,7 @@ kickout(#{clientid := ClientID}) ->
             {204}
     end.
 
-get_authz_cache(#{clientid := ClientID}) ->
-    %% TODO: use real tenant id
-    GroupedClientId = emqx_clientid:with_tenant(
-        ?NO_TENANT,
-        ClientID
-    ),
+get_authz_cache(GroupedClientId) ->
     case emqx_mgmt:list_authz_cache(GroupedClientId) of
         {error, not_found} ->
             {404, ?CLIENT_ID_NOT_FOUND};
@@ -718,12 +774,7 @@ get_authz_cache(#{clientid := ClientID}) ->
             {200, Response}
     end.
 
-clean_authz_cache(#{clientid := ClientID}) ->
-    %% TODO: use real tenant id
-    GroupedClientId = emqx_clientid:with_tenant(
-        ?NO_TENANT,
-        ClientID
-    ),
+clean_authz_cache(GroupedClientId) ->
     case emqx_mgmt:clean_authz_cache(GroupedClientId) of
         ok ->
             {204};
@@ -734,13 +785,8 @@ clean_authz_cache(#{clientid := ClientID}) ->
             {500, #{code => <<"UNKNOW_ERROR">>, message => Message}}
     end.
 
-subscribe(#{clientid := ClientID, topic := Topic} = Sub) ->
+do_subscribe(GroupedClientId, #{topic := Topic} = Sub) ->
     Opts = maps:with([qos, nl, rap, rh], Sub),
-    %% TODO: use real tenant id
-    GroupedClientId = emqx_clientid:with_tenant(
-        ?NO_TENANT,
-        ClientID
-    ),
     case do_subscribe(GroupedClientId, Topic, Opts) of
         {error, channel_not_found} ->
             {404, ?CLIENT_ID_NOT_FOUND};
@@ -749,38 +795,6 @@ subscribe(#{clientid := ClientID, topic := Topic} = Sub) ->
             {500, #{code => <<"UNKNOW_ERROR">>, message => Message}};
         {ok, SubInfo} ->
             {200, SubInfo}
-    end.
-
-subscribe_batch(#{clientid := ClientID, topics := Topics}) ->
-    %% FIXME:
-    case lookup(#{clientid => ClientID}) of
-        {200, _} ->
-            ArgList = [
-                [ClientID, Topic, maps:with([qos, nl, rap, rh], Sub)]
-             || #{topic := Topic} = Sub <- Topics
-            ],
-            {200, emqx_mgmt_util:batch_operation(?MODULE, do_subscribe, ArgList)};
-        {404, ?CLIENT_ID_NOT_FOUND} ->
-            {404, ?CLIENT_ID_NOT_FOUND}
-    end.
-
-unsubscribe(#{clientid := ClientID, topic := Topic}) ->
-    %% FIXME:
-    case do_unsubscribe(ClientID, Topic) of
-        {error, channel_not_found} ->
-            {404, ?CLIENT_ID_NOT_FOUND};
-        {unsubscribe, [{Topic, #{}}]} ->
-            {204}
-    end.
-
-unsubscribe_batch(#{clientid := ClientID, topics := Topics}) ->
-    %% FIXME:
-    case lookup(#{clientid => ClientID}) of
-        {200, _} ->
-            _ = emqx_mgmt:unsubscribe_batch(ClientID, Topics),
-            {204};
-        {404, ?CLIENT_ID_NOT_FOUND} ->
-            {404, ?CLIENT_ID_NOT_FOUND}
     end.
 
 %%--------------------------------------------------------------------
@@ -795,20 +809,14 @@ do_subscribe(ClientID, Topic0, Options) ->
         {subscribe, Subscriptions, Node} ->
             case proplists:is_defined(Topic, Subscriptions) of
                 true ->
-                    {ok, Options#{node => Node, clientid => ClientID, topic => Topic}};
+                    {ok, Options#{
+                        node => Node,
+                        clientid => emqx_clientid:without_tenant(ClientID),
+                        topic => Topic
+                    }};
                 false ->
-                    {error, unknow_error}
+                    {error, unknown_error}
             end
-    end.
-
--spec do_unsubscribe(emqx_types:clientid(), emqx_types:topic()) ->
-    {unsubscribe, _} | {error, channel_not_found}.
-do_unsubscribe(ClientID, Topic) ->
-    case emqx_mgmt:unsubscribe(ClientID, Topic) of
-        {error, Reason} ->
-            {error, Reason};
-        Res ->
-            Res
     end.
 
 %%--------------------------------------------------------------------
@@ -862,6 +870,8 @@ put_conds({_, Op1, V1, Op2, V2}, Holder, Conds) ->
         | Conds
     ].
 
+ms(tenant_id, X) ->
+    #{clientinfo => #{tenant_id => X}};
 ms(clientid, X) ->
     #{clientinfo => #{clientid => X}};
 ms(username, X) ->
@@ -1012,3 +1022,48 @@ format_authz_cache({{PubSub, Topic}, {AuthzResult, Timestamp}}) ->
         result => AuthzResult,
         updated_time => Timestamp
     }.
+
+set_tenant_id(Req, QString) ->
+    case emqx_dashboard_utils:tenant(Req, undefined) of
+        undefined -> QString;
+        TenantId -> maps:put(<<"tenant_id">>, TenantId, QString)
+    end.
+
+get_grouped_clientid(#{bindings := #{clientid := ClientId}} = Req) ->
+    TenantId = emqx_dashboard_utils:tenant(Req),
+    emqx_clientid:with_tenant(TenantId, ClientId).
+
+warp_topic(Topic, ?NO_TENANT) ->
+    Topic;
+warp_topic(Topic, undefined) ->
+    Topic;
+warp_topic(Topic, TenantId) ->
+    Prefix0 = emqx_config:get([tenant, topic_prefix], <<"">>),
+    Prefix = emqx_mountpoint:replvar(Prefix0, #{tenant_id => TenantId}),
+    case is_list(Topic) of
+        true -> [<<Prefix/binary, T/binary>> || T <- Topic];
+        false -> <<Prefix/binary, Topic/binary>>
+    end.
+
+unwarp_topic(Topics, undefined) ->
+    Topics;
+unwarp_topic(Topics, TenantId) when is_list(Topics) ->
+    Prefix0 = emqx_config:get([tenant, topic_prefix], <<"">>),
+    Prefix = emqx_mountpoint:replvar(Prefix0, #{tenant_id => TenantId}),
+    PrefixLen = erlang:byte_size(Prefix),
+    lists:map(
+        fun(Topic) ->
+            case Topic of
+                <<Prefix:PrefixLen/binary, SubTopic/binary>> -> SubTopic;
+                _ -> Topic
+            end
+        end,
+        Topics
+    );
+unwarp_topic(Topic, TenantId) ->
+    hd(unwarp_topic([Topic], TenantId)).
+
+remove_tenant_info(Clients) when is_list(Clients) ->
+    [remove_tenant_info(C) || C <- Clients];
+remove_tenant_info(Client) ->
+    maps:without([tenant_id, mountpoint], Client).

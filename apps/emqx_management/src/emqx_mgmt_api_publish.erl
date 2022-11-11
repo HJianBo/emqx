@@ -52,6 +52,7 @@ schema("/publish") ->
         post => #{
             description => ?DESC(publish_api),
             tags => [<<"Publish">>],
+            parameters => [hoconsc:ref(emqx_dashboard_swagger, tenant_id)],
             'requestBody' => hoconsc:mk(hoconsc:ref(?MODULE, publish_message)),
             responses => #{
                 ?ALL_IS_WELL => hoconsc:mk(hoconsc:ref(?MODULE, publish_ok)),
@@ -67,6 +68,7 @@ schema("/publish/bulk") ->
         post => #{
             description => ?DESC(publish_bulk_api),
             tags => [<<"Publish">>],
+            parameters => [hoconsc:ref(emqx_dashboard_swagger, tenant_id)],
             'requestBody' => hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, publish_message)), #{}),
             responses => #{
                 ?ALL_IS_WELL => hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, publish_ok)), #{}),
@@ -162,8 +164,9 @@ fields(bad_request) ->
             })}
     ].
 
-publish(post, #{body := Body}) ->
-    case message(Body) of
+publish(post, #{body := Body} = Req) ->
+    TenantId = emqx_dashboard_utils:tenant(Req),
+    case message(Body, TenantId) of
         {ok, Message} ->
             Res = emqx_mgmt:publish(Message),
             publish_result_to_http_reply(Message, Res);
@@ -171,8 +174,9 @@ publish(post, #{body := Body}) ->
             {?BAD_REQUEST, make_bad_req_reply(Reason)}
     end.
 
-publish_batch(post, #{body := Body}) ->
-    case messages(Body) of
+publish_batch(post, #{body := Body} = Req) ->
+    TenantId = emqx_dashboard_utils:tenant(Req),
+    case messages(Body, TenantId) of
         {ok, Messages} ->
             ResList = lists:map(
                 fun(Message) ->
@@ -252,7 +256,7 @@ publish_result_to_http_reply(Message, PublishResult) ->
 %% @hidden Reply batch publish result.
 %% 200 if all published OK.
 %% 202 if at least one message matched no subscribers.
-%% 503 for temp errors duing EMQX restart
+%% 503 for temp errors during EMQX restart
 publish_results_to_http_reply([_ | _] = ResList) ->
     {Codes0, BodyL} = lists:unzip(ResList),
     Codes = lists:usort(Codes0),
@@ -272,28 +276,29 @@ publish_results_to_http_reply([_ | _] = ResList) ->
         end,
     {Code, BodyL}.
 
-message(Map) ->
+message(Map, TenantId) ->
     try
-        make_message(Map)
+        make_message(Map, TenantId)
     catch
         throw:Reason ->
             {error, Reason}
     end.
 
-make_message(Map) ->
+make_message(Map, TenantId) ->
     Encoding = maps:get(<<"payload_encoding">>, Map, plain),
     case decode_payload(Encoding, maps:get(<<"payload">>, Map)) of
         {ok, Payload} ->
             From = maps:get(<<"clientid">>, Map, http_api),
             QoS = maps:get(<<"qos">>, Map, 0),
-            Topic = maps:get(<<"topic">>, Map),
+            Topic0 = maps:get(<<"topic">>, Map),
             Retain = maps:get(<<"retain">>, Map, false),
             try
-                _ = emqx_topic:validate(name, Topic)
+                _ = emqx_topic:validate(name, Topic0)
             catch
                 error:_Reason ->
                     throw(invalid_topic_name)
             end,
+            Topic = emqx_mgmt_api_clients:warp_topic(Topic0, TenantId),
             Message = emqx_message:make(From, QoS, Topic, Payload, #{retain => Retain}, #{}),
             Size = emqx_message:estimate_size(Message),
             (Size > size_limit()) andalso throw(packet_too_large),
@@ -322,17 +327,17 @@ decode_payload(base64, Payload) ->
             {error, {decode_base64_payload_failed, Payload}}
     end.
 
-messages([]) ->
+messages([], _TenantId) ->
     {errror, <<"empty_batch">>};
-messages(List) ->
-    messages(List, []).
+messages(List, TenantId) ->
+    messages(List, TenantId, []).
 
-messages([], Res) ->
+messages([], _TenantId, Res) ->
     {ok, lists:reverse(Res)};
-messages([MessageMap | List], Res) ->
-    case message(MessageMap) of
+messages([MessageMap | List], TenantId, Res) ->
+    case message(MessageMap, TenantId) of
         {ok, Message} ->
-            messages(List, [Message | Res]);
+            messages(List, TenantId, [Message | Res]);
         {error, R} ->
             {error, R}
     end.

@@ -1605,7 +1605,7 @@ check_tenant_id_allowed(Tenant, _ClientInfo) ->
 setup_topic_prefix(?NO_TENANT, ClientInfo) ->
     {ok, ?NO_TENANT, ClientInfo};
 setup_topic_prefix(Tenant, ClientInfo = #{mountpoint := MountPoint}) ->
-    Prefix0 = list_to_binary(emqx_config:get([tenant, topic_prefix], "")),
+    Prefix0 = emqx_config:get([tenant, topic_prefix], <<"">>),
     Prefix = emqx_mountpoint:replvar(Prefix0, #{tenant_id => Tenant}),
     NMountPoint =
         case MountPoint of

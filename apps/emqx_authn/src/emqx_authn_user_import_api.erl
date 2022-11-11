@@ -59,7 +59,10 @@ schema("/authentication/:id/import_users") ->
         post => #{
             tags => ?API_TAGS_GLOBAL,
             description => ?DESC(authentication_id_import_users_post),
-            parameters => [emqx_authn_api:param_auth_id()],
+            parameters => [
+                hoconsc:ref(emqx_dashboard_swagger, tenant_id),
+                emqx_authn_api:param_auth_id()
+            ],
             'requestBody' => emqx_dashboard_swagger:file_schema(filename),
             responses => #{
                 204 => <<"Users imported">>,
@@ -74,7 +77,11 @@ schema("/listeners/:listener_id/authentication/:id/import_users") ->
         post => #{
             tags => ?API_TAGS_SINGLE,
             description => ?DESC(listeners_listener_id_authentication_id_import_users_post),
-            parameters => [emqx_authn_api:param_listener_id(), emqx_authn_api:param_auth_id()],
+            parameters => [
+                hoconsc:ref(emqx_dashboard_swagger, tenant_id),
+                emqx_authn_api:param_listener_id(),
+                emqx_authn_api:param_auth_id()
+            ],
             'requestBody' => emqx_dashboard_swagger:file_schema(filename),
             responses => #{
                 204 => <<"Users imported">>,

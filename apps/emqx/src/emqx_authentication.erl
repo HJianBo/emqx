@@ -240,7 +240,10 @@ when
 authenticate(#{enable_authn := false}, _AuthResult) ->
     inc_authenticate_metric('authentication.success.anonymous'),
     ?TRACE_RESULT("authentication_result", ignore, enable_authn_false);
-authenticate(#{listener := Listener, protocol := Protocol} = Credential, _AuthResult) ->
+authenticate(
+    #{listener := Listener, protocol := Protocol, clientid := GroupedClientId} = Credential,
+    _AuthResult
+) ->
     case get_authenticators(Listener, global_chain(Protocol)) of
         {ok, ChainName, Authenticators} ->
             case get_enabled(Authenticators) of
@@ -248,7 +251,10 @@ authenticate(#{listener := Listener, protocol := Protocol} = Credential, _AuthRe
                     inc_authenticate_metric('authentication.success.anonymous'),
                     ?TRACE_RESULT("authentication_result", ignore, empty_chain);
                 NAuthenticators ->
-                    Result = do_authenticate(ChainName, NAuthenticators, Credential),
+                    ClientId = emqx_clientid:without_tenant(GroupedClientId),
+                    Result = do_authenticate(ChainName, NAuthenticators, Credential#{
+                        clientid => ClientId
+                    }),
 
                     case Result of
                         {stop, {ok, _}} ->
