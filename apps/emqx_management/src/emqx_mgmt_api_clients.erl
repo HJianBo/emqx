@@ -730,8 +730,14 @@ list_clients(QString) ->
         {error, Node, {badrpc, R}} ->
             Message = list_to_binary(io_lib:format("bad rpc call ~p, Reason ~p", [Node, R])),
             {500, #{code => <<"NODE_DOWN">>, message => Message}};
-        Response ->
-            {200, Response}
+        #{data := DataRaw} = Response ->
+            case maps:find(<<"tenant_id">>, QString) of
+                {ok, _} ->
+                    Data = remove_tenant_info(DataRaw),
+                    {200, maps:put(data, Data, Response)};
+                error ->
+                    {200, Response}
+            end
     end.
 
 lookup(#{bindings := #{clientid := _}} = Req) ->
@@ -739,8 +745,13 @@ lookup(#{bindings := #{clientid := _}} = Req) ->
     case emqx_mgmt:lookup_client({clientid, GroupedClientId}, ?FORMAT_FUN) of
         [] ->
             {404, ?CLIENT_ID_NOT_FOUND};
-        ClientInfo ->
-            {200, hd(ClientInfo)}
+        [ClientInfo] ->
+            case emqx_dashboard_utils:tenant(Req, undefined) of
+                undefined ->
+                    {200, ClientInfo};
+                _ ->
+                    {200, remove_tenant_info(ClientInfo)}
+            end
     end.
 
 kickout(GroupedClientId) ->
@@ -1051,3 +1062,8 @@ unwarp_topic(Topics, TenantId) when is_list(Topics) ->
     );
 unwarp_topic(Topic, TenantId) ->
     hd(unwarp_topic([Topic], TenantId)).
+
+remove_tenant_info(Clients) when is_list(Clients) ->
+    [remove_tenant_info(C) || C <- Clients];
+remove_tenant_info(Client) ->
+    maps:without([tenant_id, mountpoint], Client).
