@@ -178,10 +178,13 @@ test_user_auth(
     {ok, [#{provider := emqx_authn_redis, state := State}]} =
         emqx_authentication:list_authenticators(?GLOBAL),
 
-    Credentials = Credentials0#{
-        listener => 'tcp:default',
-        protocol => mqtt
-    },
+    Credentials = maps:merge(
+        #{clientid => <<"default_clientid">>},
+        Credentials0#{
+            listener => 'tcp:default',
+            protocol => mqtt
+        }
+    ),
 
     ?assertEqual(Result, emqx_access_control:authenticate(Credentials)),
 
