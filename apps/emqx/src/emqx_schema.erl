@@ -384,12 +384,12 @@ fields("tenant") ->
                     desc => ?DESC(tenant_id_from)
                 }
             )},
-        {"allow_undefined_tenant_access",
+        {"allow_non_tenant_access",
             sc(
                 boolean(),
                 #{
                     default => true,
-                    desc => ?DESC(allow_undefined_tenant_access)
+                    desc => ?DESC(allow_non_tenant_access)
                 }
             )},
         {"topic_prefix",

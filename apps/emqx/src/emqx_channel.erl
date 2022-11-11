@@ -1596,7 +1596,7 @@ setup_tenant_id(Tenant, ClientInfo = #{clientid := ClientId}) ->
     {ok, Tenant, NClientInfo}.
 
 check_tenant_id_allowed(Tenant, _ClientInfo) ->
-    case emqx_config:get([tenant, allow_undefined_tenant_access], true) of
+    case emqx_config:get([tenant, allow_non_tenant_access], true) of
         false when Tenant =:= ?NO_TENANT ->
             {error, ?RC_BANNED};
         _ ->

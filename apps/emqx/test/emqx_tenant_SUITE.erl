@@ -185,7 +185,7 @@ tenant_confs() ->
         "\n"
         "tenant {\n"
         "  tenant_id_from = peersni\n"
-        "  allow_undefined_tenant_access = true\n"
+        "  allow_non_tenant_access = true\n"
         "  topic_prefix = \"$tenants/${tenant_id}/\"\n"
         "}\n"
         ""
@@ -345,11 +345,11 @@ t_not_allowed_undefined_tenant(Config) ->
     process_flag(trap_exit, true),
     ClientFn = proplists:get_value(client_conn_fn, Config),
     %% allow undefined tenant client
-    emqx_config:put([tenant, allow_undefined_tenant_access], true),
+    emqx_config:put([tenant, allow_non_tenant_access], true),
     {ok, C1} = ClientFn(?DEFAULT_CLIENTID, #{ssl_opts => [{server_name_indication, disable}]}),
     ok = emqtt:disconnect(C1),
     %% deny udenfined tenant client
-    emqx_config:put([tenant, allow_undefined_tenant_access], false),
+    emqx_config:put([tenant, allow_non_tenant_access], false),
     {error, {banned, _}} = ClientFn(?DEFAULT_CLIENTID, #{
         ssl_opts => [{server_name_indication, disable}]
     }),
@@ -358,7 +358,7 @@ t_not_allowed_undefined_tenant(Config) ->
         ssl_opts => [{server_name_indication, ?TENANT_FOO_SNI}]
     }),
     ok = emqtt:disconnect(C2),
-    emqx_config:put([tenant, allow_undefined_tenant_access], true),
+    emqx_config:put([tenant, allow_non_tenant_access], true),
     ok.
 
 %%--------------------------------------------------------------------
