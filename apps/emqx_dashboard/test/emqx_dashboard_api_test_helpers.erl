@@ -22,6 +22,7 @@
     request/2,
     request/3,
     request/4,
+    request/5,
     multipart_formdata_request/3,
     multipart_formdata_request/4,
     uri/0,
@@ -68,6 +69,9 @@ request(Method, Url, Body) ->
     request(<<"admin">>, Method, Url, Body).
 
 request(Username, Method, Url, Body) ->
+    request(Username, Method, Url, Body, []).
+
+request(Username, Method, Url, Body, Headers) ->
     Request =
         case Body of
             [] when
@@ -75,9 +79,9 @@ request(Username, Method, Url, Body) ->
                     Method =:= head orelse Method =:= delete orelse
                     Method =:= trace
             ->
-                {Url, [auth_header(Username)]};
+                {Url, [auth_header(Username) | Headers]};
             _ ->
-                {Url, [auth_header(Username)], "application/json", jsx:encode(Body)}
+                {Url, [auth_header(Username) | Headers], "application/json", jsx:encode(Body)}
         end,
     ct:pal("Method: ~p, Request: ~p", [Method, Request]),
     case httpc:request(Method, Request, [], [{body_format, binary}]) of
