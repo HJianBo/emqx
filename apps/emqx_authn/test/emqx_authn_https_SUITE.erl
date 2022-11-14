@@ -29,6 +29,7 @@
 -define(HTTPS_PORT, 32334).
 -define(HTTPS_PATH, "/auth").
 -define(CREDENTIALS, #{
+    clientid => <<"default_clientid">>,
     username => <<"plain">>,
     password => <<"plain">>,
     listener => 'tcp:default',

@@ -250,6 +250,7 @@ t_update(_Config) ->
 
     {error, not_authorized} = emqx_access_control:authenticate(
         #{
+            clientid => <<"default_clientid">>,
             username => <<"plain">>,
             password => <<"plain">>,
             listener => 'tcp:default',
@@ -265,6 +266,7 @@ t_update(_Config) ->
 
     {ok, _} = emqx_access_control:authenticate(
         #{
+            clientid => <<"default_clientid">>,
             username => <<"plain">>,
             password => <<"plain">>,
             listener => 'tcp:default',

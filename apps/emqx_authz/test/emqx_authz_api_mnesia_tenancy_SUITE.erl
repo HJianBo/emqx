@@ -129,7 +129,14 @@ t_isolation(_) ->
             ?TENANT_BAR,
             uri(["authorization", "sources", "built_in_database", "username"])
         ),
-    #{<<"data">> := [#{<<"username">> := <<"user1">>, <<"rules">> := _}]} = jsx:decode(Resp3).
+    #{<<"data">> := [#{<<"username">> := <<"user1">>, <<"rules">> := _}]} = jsx:decode(Resp3),
+    %% clean up
+    {ok, 204, _} =
+        request(
+            delete,
+            ?TENANT_BAR,
+            uri(["authorization", "sources", "built_in_database", "username", "user1"])
+        ).
 
 %%--------------------------------------------------------------------
 %% helpers

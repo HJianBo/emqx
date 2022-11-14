@@ -193,6 +193,7 @@ t_update(_Config) ->
 
     {error, not_authorized} = emqx_access_control:authenticate(
         #{
+            clientid => <<"default_clientid">>,
             username => <<"plain">>,
             password => <<"plain">>,
             listener => 'tcp:default',
@@ -208,6 +209,7 @@ t_update(_Config) ->
 
     {ok, _} = emqx_access_control:authenticate(
         #{
+            clientid => <<"default_clientid">>,
             username => <<"plain">>,
             password => <<"plain">>,
             listener => 'tcp:default',
@@ -253,6 +255,7 @@ test_is_superuser({Value, ExpectedValue}) ->
     {{true, _}, _} = mc_worker_api:insert(?MONGO_CLIENT, <<"users">>, [UserData]),
 
     Credentials = #{
+        clientid => <<"default_clientid">>,
         listener => 'tcp:default',
         protocol => mqtt,
         username => <<"user">>,
