@@ -214,7 +214,8 @@ get_topic(Topic, _, _) ->
 %%--------------------------------------------------------------------
 
 query(Tab, {Qs, []}, Continuation, Limit) ->
-    Ms = qs2ms(Qs),
+    Tenant = get_tenant(Qs),
+    Ms = qs2ms(Qs, Tenant),
     emqx_mgmt_api:select_table_with_count(
         Tab,
         Ms,
@@ -223,8 +224,9 @@ query(Tab, {Qs, []}, Continuation, Limit) ->
         fun format/1
     );
 query(Tab, {Qs, Fuzzy}, Continuation, Limit) ->
-    Ms = qs2ms(Qs),
-    FuzzyFilterFun = fuzzy_filter_fun(Fuzzy),
+    Tenant = get_tenant(Qs),
+    Ms = qs2ms(Qs, Tenant),
+    FuzzyFilterFun = fuzzy_filter_fun(Fuzzy, Tenant),
     emqx_mgmt_api:select_table_with_count(
         Tab,
         {Ms, FuzzyFilterFun},
@@ -233,44 +235,59 @@ query(Tab, {Qs, Fuzzy}, Continuation, Limit) ->
         fun format/1
     ).
 
-fuzzy_filter_fun(Fuzzy) ->
+get_tenant(Qs) ->
+    case lists:keyfind(tenant_id, 1, Qs) of
+        false ->
+            {undefined, undefined};
+        {_, '=:=', TenantId} ->
+            Prefix0 = emqx_config:get([tenant, topic_prefix], <<"">>),
+            {TenantId, emqx_mountpoint:replvar(Prefix0, #{tenant_id => TenantId})}
+    end.
+
+fuzzy_filter_fun(Fuzzy, Tenant) ->
     fun(MsRaws) when is_list(MsRaws) ->
         lists:filter(
-            fun(E) -> run_fuzzy_filter(E, Fuzzy) end,
+            fun(E) -> run_fuzzy_filter(E, Fuzzy, Tenant) end,
             MsRaws
         )
     end.
 
-run_fuzzy_filter(_, []) ->
+run_fuzzy_filter(_, [], _) ->
     true;
-run_fuzzy_filter(E = {{_, Topic}, _}, [{topic, match, TopicFilter} | Fuzzy]) ->
-    emqx_topic:match(Topic, TopicFilter) andalso run_fuzzy_filter(E, Fuzzy).
+run_fuzzy_filter(
+    E = {{_, Topic}, _}, [{topic, match, TopicFilter} | Fuzzy], {undefined, _} = Tenant
+) ->
+    emqx_topic:match(Topic, TopicFilter) andalso run_fuzzy_filter(E, Fuzzy, Tenant);
+run_fuzzy_filter(E = {{_, Topic}, _}, [{topic, match, TopicFilter} | Fuzzy], {_, Prefix}) ->
+    emqx_topic:match(Topic, <<Prefix/binary, TopicFilter/binary>>) andalso
+        run_fuzzy_filter(E, Fuzzy, Prefix).
 
 %%--------------------------------------------------------------------
 %% Query String to Match Spec
 
-qs2ms(Qs) ->
-    MatchHead = qs2ms(Qs, {{'_', '_'}, #{}}),
+qs2ms(Qs, Tenant) ->
+    MatchHead = qs2ms(Qs, {{'_', '_'}, #{}}, Tenant),
     [{MatchHead, [], ['$_']}].
 
-qs2ms([], MatchHead) ->
+qs2ms([], MatchHead, _) ->
     MatchHead;
-qs2ms([{Key, '=:=', Value} | More], MatchHead) ->
-    qs2ms(More, update_ms(Key, Value, MatchHead)).
+qs2ms([{Key, '=:=', Value} | More], MatchHead, Tenant) ->
+    qs2ms(More, update_ms(Key, Value, MatchHead, Tenant), Tenant).
 
-update_ms(tenant_id, X, {{Pid, Topic}, Opts}) ->
+update_ms(tenant_id, X, {{Pid, Topic}, Opts} = Ms, _) ->
     case maps:find(subid, Opts) of
-        {ok, ClientId} -> {{Pid, Topic}, Opts#{subid => {X, ClientId}}};
-        error -> {{Pid, Topic}, Opts#{subid => {X, '_'}}}
+        error -> {{Pid, Topic}, Opts#{subid => {X, '_'}}};
+        {ok, _} -> Ms
     end;
-update_ms(clientid, X, {{Pid, Topic}, Opts}) ->
-    case maps:find(subid, Opts) of
-        {ok, {TenantId, _}} -> {{Pid, Topic}, Opts#{subid => {TenantId, X}}};
-        error -> {{Pid, Topic}, Opts#{subid => X}}
-    end;
-update_ms(topic, X, {{Pid, _Topic}, Opts}) ->
+update_ms(clientid, X, {{Pid, Topic}, Opts}, {undefined, _}) ->
+    {{Pid, Topic}, Opts#{subid => X}};
+update_ms(clientid, X, {{Pid, Topic}, Opts}, {TenantId, _}) ->
+    {{Pid, Topic}, Opts#{subid => {TenantId, X}}};
+update_ms(topic, X, {{Pid, _Topic}, Opts}, {undefined, _}) ->
     {{Pid, X}, Opts};
-update_ms(share_group, X, {{Pid, Topic}, Opts}) ->
+update_ms(topic, X, {{Pid, _Topic}, Opts}, {_, TopicPrefix}) ->
+    {{Pid, <<TopicPrefix/binary, X/binary>>}, Opts};
+update_ms(share_group, X, {{Pid, Topic}, Opts}, _) ->
     {{Pid, Topic}, Opts#{share => X}};
-update_ms(qos, X, {{Pid, Topic}, Opts}) ->
+update_ms(qos, X, {{Pid, Topic}, Opts}, _) ->
     {{Pid, Topic}, Opts#{qos => X}}.

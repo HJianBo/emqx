@@ -24,6 +24,8 @@
     reload_listener_without_ppv2/1
 ]).
 
+-export([tenant_header/1]).
+
 -export([meck_recv_ppv2/1, clear_meck_recv_ppv2/1]).
 
 -define(DEFAULT_OPTS, #{
@@ -143,3 +145,7 @@ clear_meck_recv_ppv2(tcp) ->
     ok = meck:unload(esockd_proxy_protocol);
 clear_meck_recv_ppv2(ws) ->
     ok = meck:unload(ranch_tcp).
+
+tenant_header(Host) ->
+    [Sni | _] = string:tokens(binary_to_list(Host), "."),
+    {"emqx-tenant-id", Sni}.
