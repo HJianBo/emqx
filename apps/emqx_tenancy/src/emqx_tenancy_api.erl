@@ -109,7 +109,7 @@ schema("/tenants") ->
             tags => ?TAGS,
             'requestBody' => ?REF(tenant_req),
             responses => #{
-                200 => ?REF(tenant_resp),
+                201 => ?REF(tenant_resp),
                 400 => emqx_dashboard_swagger:error_codes(['BAD_REQUEST'])
             }
         }
@@ -276,7 +276,7 @@ tenants(post, #{body := Tenant}) ->
     Desc = unicode:characters_to_binary(Desc0, unicode),
     case emqx_tenancy:create(Tenant#{<<"desc">> => Desc}) of
         {ok, NewTenant} ->
-            {200, NewTenant};
+            {201, NewTenant};
         {error, Reason} ->
             {400, #{
                 code => 'BAD_REQUEST',
