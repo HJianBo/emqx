@@ -83,7 +83,7 @@
     %% internal params
     {<<"user_group">>, binary},
     %% internal params
-    {<<"tenant">>, binary},
+    {<<"tenant_id">>, binary},
     {<<"like_user_id">>, binary},
     {<<"is_superuser">>, atom}
 ]).
@@ -305,7 +305,7 @@ lookup_user(Tenant, UserID, #{user_group := UserGroup}) ->
     end.
 
 list_users(Tenant, QueryString, #{user_group := UserGroup}) ->
-    NQueryString = QueryString#{<<"user_group">> => UserGroup, <<"tenant">> => Tenant},
+    NQueryString = QueryString#{<<"user_group">> => UserGroup, <<"tenant_id">> => Tenant},
     emqx_mgmt_api:node_query(node(), NQueryString, ?TAB, ?AUTHN_QSCHEMA, ?QUERY_FUN).
 
 %%--------------------------------------------------------------------

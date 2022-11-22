@@ -30,11 +30,11 @@
 -define(QUERY_CLIENTID_FUN, {?MODULE, query_clientid}).
 
 -define(ACL_USERNAME_QSCHEMA, [
-    {<<"tenant">>, binary},
+    {<<"tenant_id">>, binary},
     {<<"like_username">>, binary}
 ]).
 -define(ACL_CLIENTID_QSCHEMA, [
-    {<<"tenant">>, binary},
+    {<<"tenant_id">>, binary},
     {<<"like_clientid">>, binary}
 ]).
 
@@ -417,7 +417,7 @@ fields(rules) ->
 
 users(get, Req = #{query_string := QueryString0}) ->
     Tenant = tenant(Req, undefined),
-    QueryString = QueryString0#{<<"tenant">> => Tenant},
+    QueryString = QueryString0#{<<"tenant_id">> => Tenant},
     case
         emqx_mgmt_api:node_query(
             node(),
@@ -455,7 +455,7 @@ users(post, Req = #{body := Body}) when is_list(Body) ->
 
 clients(get, Req = #{query_string := QueryString0}) ->
     Tenant = tenant(Req, undefined),
-    QueryString = QueryString0#{<<"tenant">> => Tenant},
+    QueryString = QueryString0#{<<"tenant_id">> => Tenant},
     case
         emqx_mgmt_api:node_query(
             node(),
@@ -609,7 +609,7 @@ purge(delete, _) ->
 %% Query Functions
 
 query_username(Tab, {QString, []}, Continuation, Limit) ->
-    {value, {tenant, _, Tenant}, _} = lists:keytake(tenant, 1, QString),
+    {value, {tenant_id, _, Tenant}, _} = lists:keytake(tenant_id, 1, QString),
     Ms = emqx_authz_mnesia:list_username_rules(Tenant),
     emqx_mgmt_api:select_table_with_count(
         Tab,
@@ -619,7 +619,7 @@ query_username(Tab, {QString, []}, Continuation, Limit) ->
         fun format_result/1
     );
 query_username(Tab, {QString, FuzzyQString}, Continuation, Limit) ->
-    {value, {tenant, _, Tenant}, _} = lists:keytake(tenant, 1, QString),
+    {value, {tenant_id, _, Tenant}, _} = lists:keytake(tenant_id, 1, QString),
     Ms = emqx_authz_mnesia:list_username_rules(Tenant),
     FuzzyFilterFun = fuzzy_filter_fun(FuzzyQString),
     emqx_mgmt_api:select_table_with_count(
@@ -631,7 +631,7 @@ query_username(Tab, {QString, FuzzyQString}, Continuation, Limit) ->
     ).
 
 query_clientid(Tab, {QString, []}, Continuation, Limit) ->
-    {value, {tenant, _, Tenant}, _} = lists:keytake(tenant, 1, QString),
+    {value, {tenant_id, _, Tenant}, _} = lists:keytake(tenant_id, 1, QString),
     Ms = emqx_authz_mnesia:list_clientid_rules(Tenant),
     emqx_mgmt_api:select_table_with_count(
         Tab,
@@ -641,7 +641,7 @@ query_clientid(Tab, {QString, []}, Continuation, Limit) ->
         fun format_result/1
     );
 query_clientid(Tab, {QString, FuzzyQString}, Continuation, Limit) ->
-    {value, {tenant, _, Tenant}, _} = lists:keytake(tenant, 1, QString),
+    {value, {tenant_id, _, Tenant}, _} = lists:keytake(tenant_id, 1, QString),
     Ms = emqx_authz_mnesia:list_clientid_rules(Tenant),
     FuzzyFilterFun = fuzzy_filter_fun(FuzzyQString),
     emqx_mgmt_api:select_table_with_count(
