@@ -26,7 +26,18 @@
 -define(TENANT_BAR, "tenant_bar").
 -define(TENANT_FOO, "tenant_foo").
 
--import(emqx_dashboard_api_test_helpers, [uri/1]).
+-import(
+    emqx_dashboard_api_test_helpers,
+    [
+        uri/1,
+        request_t/3,
+        request_t/4
+    ]
+).
+
+%%--------------------------------------------------------------------
+%% setup
+%%--------------------------------------------------------------------
 
 all() ->
     emqx_common_test_helpers:all(?MODULE).
@@ -73,7 +84,7 @@ set_special_configs(_App) ->
 t_isolation(_) ->
     %% add rules for tenant_foo
     {ok, 204, _} =
-        request(
+        request_t(
             post,
             ?TENANT_FOO,
             uri(["authorization", "sources", "built_in_database", "username"]),
@@ -81,7 +92,7 @@ t_isolation(_) ->
         ),
     %% add rules for tenant_bar
     {ok, 204, _} =
-        request(
+        request_t(
             post,
             ?TENANT_BAR,
             uri(["authorization", "sources", "built_in_database", "username"]),
@@ -89,7 +100,7 @@ t_isolation(_) ->
         ),
     %% return all rules if disable tenant header
     {ok, 200, RespAll} =
-        request(
+        request_t(
             get,
             ?DISABLE_TENANT_HEADER,
             uri(["authorization", "sources", "built_in_database", "username"])
@@ -102,7 +113,7 @@ t_isolation(_) ->
     } = jsx:decode(RespAll),
     %% return tenant_foo rules if set header with tenant_foo
     {ok, 200, Resp1} =
-        request(
+        request_t(
             get,
             ?TENANT_FOO,
             uri(["authorization", "sources", "built_in_database", "username"])
@@ -111,20 +122,20 @@ t_isolation(_) ->
 
     %% remove tenant_foo rules only
     {ok, 204, _} =
-        request(
+        request_t(
             delete,
             ?TENANT_FOO,
             uri(["authorization", "sources", "built_in_database", "username", "user1"])
         ),
     {ok, 200, Resp2} =
-        request(
+        request_t(
             get,
             ?TENANT_FOO,
             uri(["authorization", "sources", "built_in_database", "username"])
         ),
     #{<<"data">> := []} = jsx:decode(Resp2),
     {ok, 200, Resp3} =
-        request(
+        request_t(
             get,
             ?TENANT_BAR,
             uri(["authorization", "sources", "built_in_database", "username"])
@@ -132,26 +143,8 @@ t_isolation(_) ->
     #{<<"data">> := [#{<<"username">> := <<"user1">>, <<"rules">> := _}]} = jsx:decode(Resp3),
     %% clean up
     {ok, 204, _} =
-        request(
+        request_t(
             delete,
             ?TENANT_BAR,
             uri(["authorization", "sources", "built_in_database", "username", "user1"])
         ).
-
-%%--------------------------------------------------------------------
-%% helpers
-
-request(Method, Tenant, Url) when Method == get; Method == delete ->
-    emqx_dashboard_api_test_helpers:request(
-        <<"admin">>, Method, Url, [], headers(Tenant)
-    ).
-
-request(Method, Tenant, Url, Body) when Method == post; Method == put ->
-    emqx_dashboard_api_test_helpers:request(
-        <<"admin">>, Method, Url, Body, headers(Tenant)
-    ).
-
-headers(disable) ->
-    [];
-headers(Tenant) ->
-    [{"EMQX-TENANT-ID", Tenant}].

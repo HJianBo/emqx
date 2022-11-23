@@ -109,7 +109,10 @@ do_update(Tenant = #{<<"id">> := Id}) ->
     end.
 
 do_delete(Id) ->
-    mnesia:delete(?TENANCY, Id, write).
+    mnesia:delete(?TENANCY, Id, write),
+    %% delete authn/authz related users
+    emqx_authn_mnesia:do_tenant_deleted(Id),
+    emqx_authz_mnesia:do_tenant_deleted(Id).
 
 format(Tenants) when is_list(Tenants) ->
     [format(Tenant) || Tenant <- Tenants];

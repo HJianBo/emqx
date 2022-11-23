@@ -60,6 +60,7 @@
     do_add_user/3,
     do_delete_user/3,
     do_update_user/4,
+    do_tenant_deleted/1,
     import/3,
     import_csv/4
 ]).
@@ -307,6 +308,18 @@ lookup_user(Tenant, UserID, #{user_group := UserGroup}) ->
 list_users(Tenant, QueryString, #{user_group := UserGroup}) ->
     NQueryString = QueryString#{<<"user_group">> => UserGroup, <<"tenant_id">> => Tenant},
     emqx_mgmt_api:node_query(node(), NQueryString, ?TAB, ?AUTHN_QSCHEMA, ?QUERY_FUN).
+
+do_tenant_deleted(Tenant) ->
+    Ms = ets:fun2ms(
+        fun(#user_info{user_id = {X1, X2, X3}}) when
+            X2 =:= Tenant
+        ->
+            {X1, X2, X3}
+        end
+    ),
+    %% XXX: performance bottleneck?
+    All = mnesia:select(?TAB, Ms, read),
+    lists:foreach(fun(K) -> mnesia:delete(?TAB, K, write) end, All).
 
 %%--------------------------------------------------------------------
 %% Query Functions

@@ -75,7 +75,8 @@
     list_username_rules/1,
     list_clientid_rules/1,
     list_all_rules/1,
-    record_count/0
+    record_count/0,
+    do_tenant_deleted/1
 ]).
 
 -ifdef(TEST).
@@ -237,6 +238,11 @@ list_all_rules(Tenant0) ->
 -spec record_count() -> non_neg_integer().
 record_count() ->
     mnesia:table_info(?ACL_TABLE, size).
+
+do_tenant_deleted(Tenant) ->
+    Ms = ets:fun2ms(fun(#emqx_acl{who = Who}) when element(2, Who) =:= Tenant -> Who end),
+    All = mnesia:select(?ACL_TABLE, Ms, read),
+    lists:foreach(fun(K) -> mnesia:delete(?ACL_TABLE, K, write) end, All).
 
 %%--------------------------------------------------------------------
 %% Internal functions
