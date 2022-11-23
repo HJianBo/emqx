@@ -17,6 +17,11 @@
 -module(emqx_dashboard_api_test_helpers).
 
 -export([
+    init_suite/0,
+    init_suite/1,
+    init_suite/2,
+    end_suite/0,
+    end_suite/1,
     set_default_config/0,
     set_default_config/1,
     request/2,
@@ -29,9 +34,47 @@
     uri/1
 ]).
 
+%% request with tenant-id
+-export([
+    request_t/3,
+    request_t/4
+]).
+
 -define(HOST, "http://127.0.0.1:18083/").
 -define(API_VERSION, "v5").
 -define(BASE_PATH, "api").
+
+init_suite() ->
+    init_suite([]).
+
+init_suite(Apps) ->
+    init_suite(Apps, fun(App) -> set_special_configs(App) end).
+
+init_suite(Apps, AppHandler) ->
+    mria:start(),
+    application:load(emqx_management),
+    emqx_common_test_helpers:start_apps(
+        Apps ++ [emqx_dashboard],
+        fun(App) ->
+            set_special_configs(App),
+            AppHandler(App)
+        end
+    ).
+
+end_suite() ->
+    end_suite([]).
+
+end_suite(Apps) ->
+    application:unload(emqx_management),
+    emqx_common_test_helpers:stop_apps(Apps ++ [emqx_dashboard]),
+    emqx_config:delete_override_conf_files(),
+    ok.
+
+set_special_configs(emqx_dashboard) ->
+    set_default_config(),
+    ok;
+set_special_configs(_App) ->
+    ok.
 
 set_default_config() ->
     set_default_config(<<"admin">>).
@@ -92,6 +135,20 @@ request(Username, Method, Url, Body, Headers) ->
         {ok, {Reason, _, _}} ->
             {error, Reason}
     end.
+
+request_t(Method, Tenant, Url) when Method == get; Method == delete ->
+    request(<<"admin">>, Method, Url, [], tenant_id_headers(Tenant)).
+
+request_t(Method, Tenant, Url, Body) when Method == post; Method == put ->
+    request(<<"admin">>, Method, Url, Body, tenant_id_headers(Tenant)).
+
+tenant_id_headers(Tenant) when
+    Tenant == disable;
+    Tenant == <<>>
+->
+    [];
+tenant_id_headers(Tenant) ->
+    [{"EMQX-TENANT-ID", Tenant}].
 
 uri() -> uri([]).
 uri(Parts) when is_list(Parts) ->
