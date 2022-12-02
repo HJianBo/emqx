@@ -194,6 +194,8 @@ info(zone, #channel{clientinfo = ClientInfo}) ->
     maps:get(zone, ClientInfo);
 info(listener, #channel{clientinfo = ClientInfo}) ->
     maps:get(listener, ClientInfo);
+info(tenant_id, #channel{clientinfo = ClientInfo}) ->
+    maps:get(tenant_id, ClientInfo, undefined);
 info(clientid, #channel{clientinfo = ClientInfo}) ->
     maps:get(clientid, ClientInfo, undefined);
 info(username, #channel{clientinfo = ClientInfo}) ->
@@ -1102,7 +1104,7 @@ handle_out(Type, Data, Channel) ->
 %%--------------------------------------------------------------------
 
 return_connack(AckPacket, Channel) ->
-    Replies = [{event, connected}, {connack, AckPacket}],
+    Replies = [{event, connected}, {event, update_limiter}, {connack, AckPacket}],
     case maybe_resume_session(Channel) of
         ignore ->
             {ok, Replies, Channel};

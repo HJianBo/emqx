@@ -42,7 +42,6 @@
 
 -export([
     start_link/2,
-    connect/3,
     add_bucket/3,
     del_bucket/2,
     get_initial_val/1,
@@ -107,43 +106,8 @@
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
--spec connect(
-    limiter_id(),
-    limiter_type(),
-    bucket_name() | #{limiter_type() => bucket_name() | undefined}
-) ->
-    {ok, emqx_htb_limiter:limiter()} | {error, _}.
-%% If no bucket path is set in config, there will be no limit
-connect(_Id, _Type, undefined) ->
-    {ok, emqx_htb_limiter:make_infinity_limiter()};
-connect(Id, Type, Cfg) ->
-    case find_limiter_cfg(Type, Cfg) of
-        {undefined, _} ->
-            {ok, emqx_htb_limiter:make_infinity_limiter()};
-        {
-            #{
-                rate := BucketRate,
-                capacity := BucketSize
-            },
-            #{rate := CliRate, capacity := CliSize} = ClientCfg
-        } ->
-            case emqx_limiter_manager:find_bucket(Id, Type) of
-                {ok, Bucket} ->
-                    {ok,
-                        if
-                            CliRate < BucketRate orelse CliSize < BucketSize ->
-                                emqx_htb_limiter:make_token_bucket_limiter(ClientCfg, Bucket);
-                            true ->
-                                emqx_htb_limiter:make_ref_limiter(ClientCfg, Bucket)
-                        end};
-                undefined ->
-                    ?SLOG(error, #{msg => "bucket_not_found", type => Type, id => Id}),
-                    {error, invalid_bucket}
-            end
-    end.
-
 -spec add_bucket(limiter_id(), limiter_type(), hocons:config() | undefined) -> ok.
-add_bucket(_Id, _Type, undefine) ->
+add_bucket(_Id, _Type, undefined) ->
     ok;
 add_bucket(Id, Type, Cfg) ->
     ?CALL(Type, {add_bucket, Id, Cfg}).
@@ -566,22 +530,3 @@ call(Type, Msg) ->
         Pid ->
             gen_server:call(Pid, Msg)
     end.
-
-find_limiter_cfg(Type, #{rate := _} = Cfg) ->
-    {Cfg, find_client_cfg(Type, maps:get(client, Cfg, undefined))};
-find_limiter_cfg(Type, Cfg) ->
-    {
-        maps:get(Type, Cfg, undefined),
-        find_client_cfg(Type, emqx_map_lib:deep_get([client, Type], Cfg, undefined))
-    }.
-
-find_client_cfg(Type, BucketCfg) ->
-    NodeCfg = emqx:get_config([limiter, client, Type], undefined),
-    merge_client_cfg(NodeCfg, BucketCfg).
-
-merge_client_cfg(undefined, BucketCfg) ->
-    BucketCfg;
-merge_client_cfg(NodeCfg, undefined) ->
-    NodeCfg;
-merge_client_cfg(NodeCfg, BucketCfg) ->
-    maps:merge(NodeCfg, BucketCfg).

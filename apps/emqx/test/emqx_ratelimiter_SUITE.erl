@@ -744,7 +744,7 @@ connect(Cfg) ->
     connect(?MODULE, Cfg).
 
 connect(Name, Cfg) ->
-    {ok, Limiter} = emqx_limiter_server:connect(Name, message_routing, Cfg),
+    {ok, Limiter} = emqx_htb_limiter:connect(Name, message_routing, Cfg),
     Limiter.
 
 make_limiter_cfg() ->

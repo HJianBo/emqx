@@ -14,6 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
+%% @doc Manange all limiter's bucket created by emqx core or other apps
 -module(emqx_limiter_manager).
 
 -behaviour(gen_server).

@@ -32,6 +32,10 @@
     retry_list/2
 ]).
 
+-export([
+    upgrade_with_tenant/2
+]).
+
 -export_type([container/0, check_result/0]).
 
 -type container() :: #{
@@ -75,7 +79,7 @@ get_limiter_by_types({Type, Listener}, Types, BucketCfgs) ->
     get_limiter_by_types(Id, Types, BucketCfgs);
 get_limiter_by_types(Id, Types, BucketCfgs) ->
     Init = fun(Type, Acc) ->
-        {ok, Limiter} = emqx_limiter_server:connect(Id, Type, BucketCfgs),
+        {ok, Limiter} = emqx_htb_limiter:connect(Id, Type, BucketCfgs),
         add_new(Type, Limiter, Acc)
     end,
     lists:foldl(Init, #{retry_ctx => undefined}, Types).
@@ -99,7 +103,7 @@ check_list([{Need, Type} | T], Container) ->
     case emqx_htb_limiter:check(Need, Limiter) of
         {ok, Limiter2} ->
             check_list(T, Container#{Type := Limiter2});
-        {_, PauseMs, Ctx, Limiter2} ->
+        {_, PauseMs, RetryCtx, Limiter2} ->
             Fun = fun({FN, FT}, Acc) ->
                 Future = emqx_htb_limiter:make_future(FN),
                 Acc#{?RETRY_KEY(FT) := Future}
@@ -108,7 +112,7 @@ check_list([{Need, Type} | T], Container) ->
                 Fun,
                 Container#{
                     Type := Limiter2,
-                    ?RETRY_KEY(Type) := Ctx
+                    ?RETRY_KEY(Type) := RetryCtx
                 },
                 T
             ),
@@ -133,13 +137,20 @@ retry_list([Type | T], Container) ->
             Type := Limiter,
             Key := Retry
         } when Retry =/= undefined ->
-            case emqx_htb_limiter:check(Retry, Limiter) of
+            Result =
+                case is_integer(Retry) of
+                    true ->
+                        emqx_htb_limiter:check(Retry, Limiter);
+                    _ ->
+                        emqx_htb_limiter:retry(Retry, Limiter)
+                end,
+            case Result of
                 {ok, Limiter2} ->
                     %% undefined meaning there is no retry context or there is no need to retry
                     %% when a limiter has a undefined retry context, the check will always success
                     retry_list(T, Container#{Type := Limiter2, Key := undefined});
-                {_, PauseMs, Ctx, Limiter2} ->
-                    {pause, PauseMs, Container#{Type := Limiter2, Key := Ctx}};
+                {_, PauseMs, RetryCtx, Limiter2} ->
+                    {pause, PauseMs, Container#{Type := Limiter2, Key := RetryCtx}};
                 {drop, Limiter2} ->
                     {drop, Container#{Type := Limiter2}}
             end;
@@ -156,6 +167,13 @@ set_retry_context(Data, Container) ->
 -spec get_retry_context(container()) -> any().
 get_retry_context(#{retry_ctx := Data}) ->
     Data.
+
+-spec upgrade_with_tenant(binary(), container()) -> container().
+upgrade_with_tenant(TenantId, Container) ->
+    case emqx_hooks:run_fold('tenant.get_limiters', [TenantId], []) of
+        [] -> Container;
+        _Limiters -> todo
+    end.
 
 %%--------------------------------------------------------------------
 %%  Internal functions
