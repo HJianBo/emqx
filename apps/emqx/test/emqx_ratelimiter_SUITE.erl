@@ -159,8 +159,7 @@ t_divisible(_) ->
         ?assertMatch(
             {partial, 400,
                 #{
-                    continuation := _,
-                    diff := 400,
+                    waiting_local_bucket := 400,
                     start := _,
                     need := 1000
                 },
@@ -188,8 +187,9 @@ t_low_watermark(_) ->
         ?assertMatch(
             {pause, _,
                 #{
-                    continuation := undefined,
-                    diff := 0
+                    need := 101,
+                    min_left := 399,
+                    consume_array := []
                 },
                 _},
             Result2

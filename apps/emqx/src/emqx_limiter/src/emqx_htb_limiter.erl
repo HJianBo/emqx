@@ -240,7 +240,7 @@ consume(_, Limiter) ->
     {ok, Limiter}.
 
 %% @doc try to request the token and return the result without automatically retrying
--spec check(pos_integer(), Limiter) -> check_result(Limiter) when
+-spec check(pos_integer() | retry_context(), Limiter) -> check_result(Limiter) when
     Limiter :: limiter().
 check(_, infinity) ->
     {ok, infinity};
@@ -250,37 +250,11 @@ check(Need, Limiter) when is_integer(Need), Need > 0 ->
             Done;
         {PauseType, Pause, RetryCtx, Limiter2} ->
             {PauseType, Pause, RetryCtx#{start => ?NOW, need => Need}, Limiter2}
-    end.
-%%% check with retry context.
-%%% when continuation = undefined, the diff will be 0
-%%% so there is no need to check continuation here
-%check(
-%    #{
-%        continuation := Cont,
-%        diff := Diff,
-%        start := Start
-%    } = Retry,
-%    #{
-%        failure_strategy := Failure,
-%        max_retry_time := RetryTime
-%    } = Limiter
-%) when Diff > 0 ->
-%    case Cont(Diff, Limiter) of
-%        {ok, _} = Done ->
-%            Done;
-%        {PauseType, Pause, Ctx, Limiter2} ->
-%            IsFailed = ?NOW - Start >= RetryTime,
-%            Retry2 = maps:merge(Retry, Ctx),
-%            case IsFailed of
-%                false ->
-%                    {PauseType, Pause, Retry2, Limiter2};
-%                _ ->
-%                    on_failure(Failure, try_restore(Retry2, Limiter2))
-%            end
-%    end;
-%check(_, Limiter) ->
-%    %% undefined retry func
-%    {ok, Limiter}.
+    end;
+check(Need, Limiter) when is_map(Need) ->
+    retry(Need, Limiter);
+check(Need, Limiter) when is_integer(Need) ->
+    {ok, Limiter}.
 
 %% @doc pack the retry context into the limiter data
 -spec set_retry(retry_context(), Limiter) -> Limiter when
@@ -294,6 +268,17 @@ retry(#{retry_ctx := Retry} = Limiter) when is_map(Retry) ->
     retry(Retry, Limiter#{retry_ctx := undefined});
 retry(Limiter) ->
     {ok, Limiter}.
+
+%% @doc retry with retry context
+-spec retry(retry_context(), Limiter) -> check_result(Limiter) when Limiter :: limiter().
+retry(RetryCtx = #{waiting_local_bucket := Diff}, Limiter) ->
+    Result = do_reset(Diff, Limiter),
+    may_drop_failure(RetryCtx, Result);
+retry(#{consume_array := []}, Limiter) ->
+    {ok, Limiter};
+retry(RetryCtx = #{consume_array := RetryArray, min_left := RefMinLeft0}, Limiter) ->
+    Result = do_check_all_ref_buckets(RetryArray, RefMinLeft0, Limiter),
+    may_drop_failure(RetryCtx, Result).
 
 %% @doc make a future value
 %% this similar to retry context, but represents a value that will be checked in the future
@@ -414,34 +399,26 @@ do_check_with_parent_limiter(
     CheckAll = check_all_consume_array(Need, Limiter),
     do_check_all_ref_buckets(CheckAll, infinity, Limiter#{tokens := Left}).
 
--spec retry(retry_context(), Limiter) -> check_result(Limiter) when Limiter :: limiter().
-retry(RetryCtx = #{waiting_local_bucket := Diff}, Limiter) ->
-    Result = do_reset(Diff, Limiter),
-    may_drop_failure(RetryCtx, Result);
-retry(#{consume_array := []}, Limiter) ->
-    {ok, Limiter};
-retry(RetryCtx = #{consume_array := RetryArray, min_left := RefMinLeft0}, Limiter) ->
-    Result = do_check_all_ref_buckets(RetryArray, RefMinLeft0, Limiter),
-    may_drop_failure(RetryCtx, Result).
-
 may_drop_failure(_, Done = {ok, _}) ->
     Done;
 may_drop_failure(
-    RetryCtx = #{start := Start},
-    Pause =
-        {_PauseType, _PauseMs, _RetryCtx,
-            #{
-                failure_strategy := Failure,
-                max_retry_time := RetryTime
-            } = Limiter}
+    LastRetryCtx = #{start := Start},
+    {PauseType, PauseMs, RetryCtx,
+        #{
+            failure_strategy := Failure,
+            max_retry_time := RetryTime
+        } = Limiter}
 ) ->
+    NRetryCtx = maps:merge(LastRetryCtx, RetryCtx),
     case ?NOW - Start >= RetryTime of
         false ->
-            Pause;
+            {PauseType, PauseMs, NRetryCtx, Limiter};
         _ ->
-            on_failure(Failure, try_restore(RetryCtx, Limiter))
+            on_failure(Failure, try_restore(NRetryCtx, Limiter))
     end.
 
+do_check_all_ref_buckets([], _, Limiter) ->
+    {ok, Limiter};
 do_check_all_ref_buckets(
     ConsumeArray,
     MinLeft,
@@ -473,8 +450,8 @@ do_check_all_ref_buckets(
         )
     of
         true ->
-            %% TODO: compare with current tokens
-            may_low_watermark_pause(RefMinLeft, Limiter);
+            Left = erlang:min(RefMinLeft, maps:get(tokens, Limiter, infinity)),
+            may_low_watermark_pause(Left, Limiter);
         false ->
             RetryCtx = make_retry_context(
                 generate_retry_array(Results),
@@ -620,8 +597,8 @@ try_restore(#{need := Need, consume_array := _ConsumeArray}, #{bucket := Bucket}
 
 may_low_watermark_pause(Left, #{low_watermark := Mark} = Limiter) when Left >= Mark ->
     {ok, Limiter};
-may_low_watermark_pause(_, Limiter) ->
-    {pause, ?MINIMUM_PAUSE, {[], 0}, Limiter}.
+may_low_watermark_pause(Left, Limiter) ->
+    {pause, ?MINIMUM_PAUSE, make_retry_context([], Left), Limiter}.
 
 make_retry_context(ConsumeArray, MinLeft) ->
     #{
