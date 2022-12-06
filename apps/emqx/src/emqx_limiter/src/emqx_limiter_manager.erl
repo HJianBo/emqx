@@ -77,7 +77,8 @@ start_server(Type, Cfg) ->
 
 -spec restart_server(limiter_type()) -> _.
 restart_server(Type) ->
-    emqx_limiter_server:restart(Type).
+    Cfg = emqx:get_config([limiter, Type]),
+    emqx_limiter_server:restart(Type, Cfg).
 
 -spec stop_server(limiter_type()) -> _.
 stop_server(Type) ->

@@ -44,7 +44,7 @@
     %% internal limiter for unclassified resources
     | internal.
 
--type limiter_id() :: atom().
+-type limiter_id() :: atom() | binary().
 -type bucket_name() :: atom().
 -type rate() :: infinity | float().
 -type burst_rate() :: 0 | float().

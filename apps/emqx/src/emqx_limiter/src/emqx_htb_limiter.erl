@@ -86,6 +86,7 @@
     divisible := boolean(),
     low_watermark := non_neg_integer(),
     bucket := bucket(),
+    extra_buckets := list(bucket()),
 
     retry_ctx => undefined | retry_context(),
     %% allow to add other keys
@@ -151,7 +152,7 @@
 %%--------------------------------------------------------------------
 
 -type limiter_id() :: emqx_limiter_schema:limiter_id().
--type limiter_type() :: emqx_limiter_schema:limiter_type().
+-type limiter_type() :: emqx_limiter_schema:bucket_name().
 -type bucket_name() :: emqx_limiter_schema:bucket_name().
 
 -spec connect(

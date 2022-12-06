@@ -170,10 +170,9 @@ get_retry_context(#{retry_ctx := Data}) ->
 
 -spec upgrade_with_tenant(binary(), container()) -> container().
 upgrade_with_tenant(TenantId, Container) ->
-    case emqx_hooks:run_fold('tenant.get_limiters', [TenantId], []) of
-        [] -> Container;
-        _Limiters -> todo
-    end.
+    Limiters = maps:with(emqx_limiter_schema:types(), Container),
+    NLimiters = emqx_hooks:run_fold('tenant.upgrade_limiters', [TenantId], Limiters),
+    maps:merge(Container, NLimiters).
 
 %%--------------------------------------------------------------------
 %%  Internal functions

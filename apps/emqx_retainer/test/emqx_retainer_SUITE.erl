@@ -373,7 +373,7 @@ t_flow_control(_) ->
     Rate = emqx_ratelimiter_SUITE:to_rate("1/1s"),
     LimiterCfg = make_limiter_cfg(Rate),
     JsonCfg = make_limiter_json(<<"1/1s">>),
-    emqx_limiter_server:add_bucket(emqx_retainer, internal, LimiterCfg),
+    emqx_limiter_server:add_bucket(internal, emqx_retainer, LimiterCfg),
     emqx_retainer:update_config(#{
         <<"flow_control">> =>
             #{
@@ -415,7 +415,7 @@ t_flow_control(_) ->
 
     ok = emqtt:disconnect(C1),
 
-    emqx_limiter_server:del_bucket(emqx_retainer, internal),
+    emqx_limiter_server:del_bucket(internal, emqx_retainer),
     emqx_retainer:update_config(#{
         <<"flow_control">> =>
             #{

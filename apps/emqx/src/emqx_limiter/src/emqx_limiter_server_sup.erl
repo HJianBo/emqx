@@ -25,14 +25,9 @@
 -export([init/1]).
 
 %%--------------------------------------------------------------------
-%%  API functions
+%% API functions
 %%--------------------------------------------------------------------
 
-%%--------------------------------------------------------------------
-%% @doc
-%% Starts the supervisor
-%% @end
-%%--------------------------------------------------------------------
 -spec start_link() ->
     {ok, Pid :: pid()}
     | {error, {already_started, Pid :: pid()}}
@@ -61,15 +56,6 @@ stop(Type) ->
 %%  Supervisor callbacks
 %%--------------------------------------------------------------------
 
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% Whenever a supervisor is started using supervisor:start_link/[2,3],
-%% this function is called by the new process to find out about
-%% restart strategy, maximum restart intensity, and child
-%% specifications.
-%% @end
-%%--------------------------------------------------------------------
 -spec init(Args :: term()) ->
     {ok, {SupFlags :: supervisor:sup_flags(), [ChildSpec :: supervisor:child_spec()]}}
     | ignore.
@@ -82,9 +68,9 @@ init([]) ->
 
     {ok, {SupFlags, childs()}}.
 
-%%--==================================================================
-%%  Internal functions
-%%--==================================================================
+%%--------------------------------------------------------------------
+%% Internal functions
+%%--------------------------------------------------------------------
 make_child(Type) ->
     Cfg = emqx:get_config([limiter, Type]),
     make_child(Type, Cfg).
