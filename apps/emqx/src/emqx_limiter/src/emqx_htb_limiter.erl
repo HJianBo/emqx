@@ -189,7 +189,7 @@ connect(Id, Type, Cfg) ->
             end
     end.
 
-%%@doc create a limiter
+%% @doc create a limiter
 -spec make_token_bucket_limiter(limiter_bucket_cfg(), bucket()) -> _.
 make_token_bucket_limiter(Cfg, Bucket) ->
     Cfg#{
@@ -199,7 +199,7 @@ make_token_bucket_limiter(Cfg, Bucket) ->
         extra_buckets => []
     }.
 
-%%@doc create a limiter server's reference
+%% @doc create a limiter server's reference
 -spec make_ref_limiter(limiter_bucket_cfg(), bucket()) -> ref_limiter().
 make_ref_limiter(Cfg, Bucket) when Bucket =/= infinity ->
     Cfg#{bucket => Bucket, extra_buckets => []}.
@@ -305,6 +305,7 @@ available(infinity) ->
 
 -spec connect_to_extra(limiter_id(), limiter_type(), limiter()) -> limiter().
 connect_to_extra(_Id, _Type, _Limiter) ->
+    %% TODO:
     %% 1. find bucket from emqx_limiter_manager
     %% 2. set to extra, update limiter structure
     todo.
@@ -353,7 +354,6 @@ do_check(Need, #{tokens := Tokens} = Limiter) when Need =< Tokens ->
 do_check(Need, #{tokens := _} = Limiter) ->
     do_reset(Need, Limiter);
 do_check(Need, Limiter) ->
-    %% XXX: bucket is undefined ???
     CheckAll = check_all_consume_array(Need, Limiter),
     do_check_all_ref_buckets(CheckAll, infinity, Limiter).
 
@@ -364,30 +364,6 @@ on_failure(drop, Limiter) ->
 on_failure(throw, Limiter) ->
     Message = io_lib:format("limiter consume failed, limiter:~p~n", [Limiter]),
     erlang:throw({rate_check_fail, Message}).
-
-%-spec do_check_with_parent_limiter(pos_integer(), token_bucket_limiter()) ->
-%    inner_check_result(token_bucket_limiter()).
-%do_check_with_parent_limiter(
-%    Need,
-%    #{
-%        tokens := Tokens,
-%        divisible := Divisible,
-%        bucket := Bucket
-%    } = Limiter
-%) ->
-%    case emqx_limiter_bucket_ref:check(Need, Bucket, Divisible) of
-%        {ok, RefLeft} ->
-%            Left = sub(Tokens, Need),
-%            may_return_or_pause(erlang:min(RefLeft, Left), Limiter#{tokens := Left});
-%        {PauseType, Rate, Obtained} ->
-%            return_pause(
-%                Rate,
-%                PauseType,
-%                fun ?FUNCTION_NAME/2,
-%                Need - Obtained,
-%                Limiter#{tokens := sub(Tokens, Obtained)}
-%            )
-%    end.
 
 do_check_with_parent_limiter(
     Need,
@@ -532,46 +508,24 @@ do_reset(
             PauseMs = calc_pause_ms(Need - Available, Rate),
             RetryCtx = #{waiting_local_bucket => Need - Available},
             {partial, PauseMs, RetryCtx, Limiter#{tokens := 0, lasttime := Now}};
-        %%% must be allocated here, because may be Need > Capacity
-        %return_pause(
-        %    Rate,
-        %    partial,
-        %    fun ?FUNCTION_NAME/2,
-        %    Need - Available,
-        %    Limiter#{tokens := 0, lasttime := Now}
-        %);
         _ ->
             PauseMs = calc_pause_ms(Need, Rate),
             RetryCtx = #{waiting_local_bucket => Need},
             {pause, PauseMs, RetryCtx, Limiter}
-        %return_pause(Rate, pause, fun ?FUNCTION_NAME/2, Need, Limiter)
     end.
 
 calc_pause_ms(Need, Rate) ->
     Val = erlang:round((Need) * emqx_limiter_schema:default_period() / Rate),
     emqx_misc:clamp(Val, ?MINIMUM_PAUSE, ?MAXIMUM_PAUSE).
 
-check_all_consume_array(Need, _Limiter = #{extra_buckets := ExtraBuckets}) ->
-    [{I, Need} || I <- lists:seq(1, 1 + length(ExtraBuckets))].
-
-%-spec return_pause(decimal(), pause_type(), retry_fun(Limiter), pos_integer(), Limiter) ->
-%    check_result_pause(Limiter)
-%when
-%    Limiter :: limiter().
-%return_pause(infinity, PauseType, Fun, Diff, Limiter) ->
-%    %% workaround when emqx_limiter_server's rate is infinity
-%    {PauseType, ?MINIMUM_PAUSE, make_retry_context(Fun, Diff), Limiter};
-%return_pause(Rate, PauseType, Fun, Diff, Limiter) ->
-%    Val = erlang:round(Diff * emqx_limiter_schema:default_period() / Rate),
-%    Pause = emqx_misc:clamp(Val, ?MINIMUM_PAUSE, ?MAXIMUM_PAUSE),
-%    {PauseType, Pause, make_retry_context(Fun, Diff), Limiter}.
-
-%-spec make_retry_context(undefined | retry_fun(Limiter), non_neg_integer()) ->
-%    retry_context(Limiter)
-%when
-%    Limiter :: limiter().
-%make_retry_context(Fun, Diff) ->
-%    #{continuation => Fun, diff => Diff}.
+check_all_consume_array(Need, #{bucket := Bucket, extra_buckets := ExtraBuckets}) ->
+    Count =
+        length(ExtraBuckets) +
+            case Bucket of
+                undefined -> 0;
+                _ -> 1
+            end,
+    [{I, Need} || I <- lists:seq(1, Count)].
 
 -spec try_restore(retry_context(), Limiter) -> Limiter when
     Limiter :: limiter().
@@ -587,13 +541,6 @@ try_restore(#{need := Need, consume_array := _ConsumeArray}, #{bucket := Bucket}
     %% TODO: need to calculate return num for each buckets
     _ = emqx_limiter_bucket_ref:try_restore(Need, Bucket),
     Limiter.
-
-%-spec may_return_or_pause(non_neg_integer(), Limiter) -> check_result(Limiter) when
-%    Limiter :: limiter().
-%may_return_or_pause(Left, #{low_watermark := Mark} = Limiter) when Left >= Mark ->
-%    {ok, Limiter};
-%may_return_or_pause(_, Limiter) ->
-%    {pause, ?MINIMUM_PAUSE, make_retry_context(undefined, 0), Limiter}.
 
 may_low_watermark_pause(Left, #{low_watermark := Mark} = Limiter) when Left >= Mark ->
     {ok, Limiter};
