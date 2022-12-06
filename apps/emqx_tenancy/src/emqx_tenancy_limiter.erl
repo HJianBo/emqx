@@ -19,33 +19,67 @@
 
 -include("emqx_tenancy.hrl").
 
--export([create/2]).
+%% load/unload
+-export([load/0, unload/0]).
 
-%% top-level APIs for tenancy Mgmt
+%% management APIs
+-export([create/2, update/2, remove/1, info/1]).
 
--spec create(tenant_id(), limiter_config()) -> supervisor:startchild_ret().
+%% hooks
+-export([on_upgarde_limiters/2]).
+
+%%--------------------------------------------------------------------
+%% load/unload
+
+%% @doc Load tenancy limiter
+%% It's only works for new connections
+-spec load() -> ok.
+load() ->
+    emqx_hooks:put('tenant.upgrade_limiters', {?MODULE, on_upgarde_limiters, []}, 0).
+
+%% @doc Unload tenanct limiter
+%% It's only works for new connections
+-spec unload() -> ok.
+unload() ->
+    emqx_hooks:del('tenant.upgrade_limiters', {?MODULE, on_upgarde_limiters, []}).
+
+%%--------------------------------------------------------------------
+%% hooks
+
+-spec on_upgarde_limiters(tenant_id(), Limiters) -> {ok, Limiters} when
+    Limiters :: #{limiter_type() => emqx_htb_limiter:limiter()}.
+on_upgarde_limiters(TenantId, Limiters) ->
+    NLimiters = maps:map(
+        fun(Type, Limiter) ->
+            BucketId = emqx_tenancy_limiter_server:bucket_id(TenantId, Type),
+            emqx_htb_limiter:connect_to_extra(BucketId, Type, Limiter)
+        end,
+        Limiters
+    ),
+    {ok, NLimiters}.
+
+%%--------------------------------------------------------------------
+%% management APIs
+
+%% @doc create all limiters for a tenant
+-spec create(tenant_id(), limiter_config()) -> ok | {error, term()}.
 create(TenantId, Config) ->
     %% TODO: 0. How to sync to all nodes
     emqx_tenancy_limiter_sup:create(TenantId, Config).
 
-%-spec update(tenant_id(), limiter_config()) -> ok.
-%
-%-spec remove(tenant_id()) -> ok.
-%
-%%-spec lookup(tenant_id()) -> {error, not_found} | {ok, usage()}.
-%%
-%%-spec list(()) -> [usage()].
-%
-%%% APIs for consumer
-%
-%%% checkout all matched limiters
-%-spec get_limiter_by_types(
-%    tenant_id(),
-%    [emqx_limiter_container:limiter_type()]
-%) -> emqx_limiter_container:container().
-%
-%%% check list of limiters
-%-spec check_list(
-%    [{pos_integer(), emqx_limiter_container:limiter_type()}],
-%    emqx_limiter_container:container()
-%) -> emqx_limiter_container:check_result().
+%% @doc update all limiters for a tenant
+-spec update(tenant_id(), limiter_config()) -> ok | {error, term()}.
+update(TenantId, Config) ->
+    %% TODO: clustering?
+    emqx_tenancy_limiter_sup:update(TenantId, Config).
+
+%% @doc remove a tenant's all limiters
+-spec remove(tenant_id()) -> ok.
+remove(TenantId) ->
+    %% TODO: clustering?
+    emqx_tenancy_limiter_sup:remove(TenantId).
+
+%% @doc lookup all limiters info of a tenant in current node
+-spec info(tenant_id()) -> {ok, [limiter_info()]} | {error, term()}.
+info(TenantId) ->
+    emqx_tenancy_limiter_sup:info(TenantId).

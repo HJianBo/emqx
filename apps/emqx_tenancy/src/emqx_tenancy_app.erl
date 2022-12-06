@@ -24,7 +24,9 @@
 
 start(_StartType, _StartArgs) ->
     ok = mria_rlog:wait_for_shards([?COMMON_SHARD], infinity),
+    ok = emqx_tenancy_limiter:load(),
     emqx_tenancy_sup:start_link().
 
 stop(_State) ->
+    ok = emqx_tenancy_limiter:unload(),
     ok.

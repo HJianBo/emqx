@@ -155,6 +155,7 @@
 -type limiter_type() :: emqx_limiter_schema:bucket_name().
 -type bucket_name() :: emqx_limiter_schema:bucket_name().
 
+%% @doc Connect to a limiter bucket and create a local token bucket
 -spec connect(
     limiter_id(),
     limiter_type(),
@@ -304,12 +305,18 @@ available(#{bucket := Bucket}) ->
 available(infinity) ->
     infinity.
 
+%% @doc Connect to created reference buckets
 -spec connect_to_extra(limiter_id(), limiter_type(), limiter()) -> limiter().
-connect_to_extra(_Id, _Type, _Limiter) ->
-    %% TODO:
-    %% 1. find bucket from emqx_limiter_manager
-    %% 2. set to extra, update limiter structure
-    todo.
+connect_to_extra(Id, Type, Limiter) ->
+    %% assert: retry_ctx must be undefined. Since modifying buckets list
+    %% during retry is not supported yet
+    undefined = maps:get(retry_ctx, Limiter, undefined),
+    case emqx_limiter_manager:find_bucket(Id, Type) of
+        {ok, Bucket} ->
+            Limiter#{extra_buckets := [Bucket]};
+        undefined ->
+            Limiter
+    end.
 
 -spec set_extra_buckets(list(bucket()), limiter()) -> limiter().
 set_extra_buckets(Buckets, Limiter) ->

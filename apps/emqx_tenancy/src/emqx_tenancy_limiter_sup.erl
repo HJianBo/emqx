@@ -21,9 +21,13 @@
 -behaviour(supervisor).
 
 %% API
+-export([start_link/0]).
+
 -export([
-    start_link/0,
-    create/2
+    create/2,
+    update/2,
+    remove/1,
+    info/1
 ]).
 
 %% Supervisor callbacks
@@ -35,9 +39,45 @@
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
--spec create(tenant_id(), limiter_config()) -> supervisor:startchild_ret().
+-spec create(tenant_id(), limiter_config()) -> ok | {error, term()}.
 create(TenantId, Config) ->
-    start_child(TenantId, Config).
+    case start_child(TenantId, Config) of
+        {ok, _Pid} ->
+            ok;
+        {error, _} = Err ->
+            Err
+    end.
+
+-spec update(tenant_id(), limiter_config()) -> ok | {error, term()}.
+update(TenantId, Config) ->
+    case find_sup_child(?MODULE, name(TenantId)) of
+        false ->
+            {error, not_found};
+        {ok, Pid} ->
+            emqx_tenancy_limiter_server:update(Pid, Config)
+    end.
+
+-spec remove(tenant_id()) -> ok.
+remove(TenantId) ->
+    Name = name(TenantId),
+    case find_sup_child(?MODULE, Name) of
+        false ->
+            ok;
+        {ok, _Pid} ->
+            _ = supervisor:terminate_child(?MODULE, Name),
+            _ = supervisor:delete_child(?MODULE, Name),
+            ok
+    end.
+
+-spec info(tenant_id()) -> {ok, [limiter_info()]} | {error, term()}.
+info(TenantId) ->
+    case find_sup_child(?MODULE, name(TenantId)) of
+        false -> {error, not_found};
+        {ok, Pid} -> emqx_tenancy_limiter_server:info(Pid)
+    end.
+
+%%--------------------------------------------------------------------
+%% callbacks
 
 init([]) ->
     SupFlags = #{
@@ -47,14 +87,28 @@ init([]) ->
     },
     {ok, {SupFlags, []}}.
 
+%%--------------------------------------------------------------------
+%% internal funcs
+
 start_child(TenantId, Config) ->
     Spec = #{
         id => name(TenantId),
-        start => {emqx_tenancy_limiter_server_sup, start_link, [Config]},
+        type => worker,
+        start => {emqx_tenancy_limiter_server, start_link, [TenantId, Config]},
         restart => permanent,
         shutdown => 5000
     },
-    supervisor:start_child(?MODULE, Spec).
+    case supervisor:start_child(?MODULE, Spec) of
+        {ok, Pid} -> {ok, Pid};
+        {ok, Pid, _Info} -> {ok, Pid};
+        {error, _} = Err -> Err
+    end.
+
+find_sup_child(Sup, ChildId) ->
+    case lists:keyfind(ChildId, 1, supervisor:which_children(Sup)) of
+        false -> false;
+        {_Id, Pid, _Type, _Mods} -> {ok, Pid}
+    end.
 
 name(TenantId) ->
     TenantId.

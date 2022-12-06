@@ -106,7 +106,7 @@ insert_bucket(Id, Type, Bucket) ->
     ).
 
 -spec delete_bucket(limiter_id(), limiter_type()) -> true.
-delete_bucket(Type, Id) ->
+delete_bucket(Id, Type) ->
     ets:delete(?TAB, ?UID(Id, Type)).
 
 post_config_update([limiter, Type], _Config, NewConf, _OldConf, _AppEnvs) ->

@@ -20,6 +20,8 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("emqx/include/logger.hrl").
 
+-define(TENANCY_SHARD, emqx_tenancy_shard).
+
 -type tenant_id() :: binary().
 
 -type config() :: quota_config() | limiter_config() | common_config().
@@ -40,9 +42,14 @@
     #{
         max_conn_rate := pos_integer(),
         max_messages_in := pos_integer(),
-        max_bytes_in := pos_integer(),
-        max_sub_rate := pos_integer()
+        max_bytes_in := pos_integer()
+        %%max_sub_rate := pos_integer() not support now
     }.
+
+-type limiter_info() :: #{
+    rate := pos_integer(),
+    obtained := pos_integer()
+}.
 
 -type common_config() ::
     #{
@@ -71,5 +78,11 @@
 -record(tenant_usage, {sni, usage}).
 
 -define(TENANCY, emqx_tenancy).
+
+%% type references
+
+-type limiter_type() :: emqx_limiter_schema:limiter_type().
+%% XXX: bucket_id ??
+-type bucket_id() :: emqx_limiter_schema:limiter_id().
 
 -endif.
