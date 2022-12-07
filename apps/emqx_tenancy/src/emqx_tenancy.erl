@@ -22,6 +22,7 @@
 -export([mnesia/1]).
 -boot_mnesia({mnesia, [boot]}).
 
+-export([load_tenants/0]).
 -export([create/1, do_create/1]).
 -export([read/1, do_read/1]).
 -export([update/2, do_update/1]).
@@ -43,12 +44,34 @@ mnesia(boot) ->
         {attributes, record_info(fields, tenant)}
     ]).
 
+%% @doc Load all tenants running resources
+-spec load_tenants() -> ok.
+load_tenants() ->
+    load_tenants(ets:tab2list(?TENANCY)).
+load_tenants([]) ->
+    ok;
+load_tenants([#tenant{id = Id, quota = Quota} | More]) ->
+    ok = emqx_tenancy_limiter:do_create(Id, with_limiter_configs(Quota)),
+    %% TODO: quota servers
+    load_tenants(More).
+
 -spec create(map()) -> {ok, map()} | {error, any()}.
 create(Tenant) ->
     Now = now_second(),
     Tenant1 = to_tenant(Tenant),
     Tenant2 = Tenant1#tenant{created_at = Now, updated_at = Now},
-    trans(fun ?MODULE:do_create/1, [Tenant2]).
+    %% TODO: create quota servers
+    case
+        emqx_tenancy_limiter:create(
+            Tenant2#tenant.id,
+            with_limiter_configs(Tenant2#tenant.quota)
+        )
+    of
+        ok ->
+            trans(fun ?MODULE:do_create/1, [Tenant2]);
+        {error, Reason} ->
+            {error, Reason}
+    end.
 
 -spec read(tenant_id()) -> {ok, map()} | {error, any()}.
 read(Id) ->
@@ -56,12 +79,25 @@ read(Id) ->
 
 -spec update(tenant_id(), map()) -> {ok, map()} | {error, any()}.
 update(Id, #{<<"id">> := Id} = Tenant) ->
-    trans(fun ?MODULE:do_update/1, [Tenant]);
+    %% TODO: update quota servers
+    case
+        emqx_tenancy_limiter:update(
+            Id,
+            with_limiter_configs(maps:get(<<"quota">>, Tenant))
+        )
+    of
+        ok ->
+            trans(fun ?MODULE:do_update/1, [Tenant]);
+        {error, Reason} ->
+            {error, Reason}
+    end;
 update(_Id, _) ->
     {error, invalid_tenant}.
 
 -spec delete(tenant_id()) -> ok.
 delete(Id) ->
+    %% TODO: delete quota servers
+    ok = emqx_tenancy_limiter:remove(Id),
     trans(fun ?MODULE:do_delete/1, [Id]).
 
 trans(Fun, Args) ->
@@ -177,6 +213,14 @@ default_quota() ->
         <<"max_qos_allowed">> => 2,
         <<"max_topic_alias">> => 65535
     }.
+
+with_limiter_configs(RawConfig) ->
+    Keys = [
+        <<"max_conn_rate">>,
+        <<"max_messages_in">>,
+        <<"max_bytes_in">>
+    ],
+    emqx_map_lib:safe_atom_key_map(maps:with(Keys, RawConfig)).
 
 now_second() ->
     os:system_time(second).

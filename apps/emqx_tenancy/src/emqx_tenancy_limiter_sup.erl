@@ -73,7 +73,7 @@ remove(TenantId) ->
 info(TenantId) ->
     case find_sup_child(?MODULE, name(TenantId)) of
         false -> {error, not_found};
-        {ok, Pid} -> emqx_tenancy_limiter_server:info(Pid)
+        {ok, Pid} -> {ok, emqx_tenancy_limiter_server:info(Pid)}
     end.
 
 %%--------------------------------------------------------------------

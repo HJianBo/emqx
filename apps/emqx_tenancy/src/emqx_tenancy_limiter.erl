@@ -25,6 +25,9 @@
 %% management APIs
 -export([create/2, update/2, remove/1, info/1]).
 
+%% node level APIs
+-export([do_create/2, do_update/2, do_remove/1, do_info/1]).
+
 %% hooks
 -export([on_upgarde_limiters/2]).
 
@@ -59,27 +62,74 @@ on_upgarde_limiters(TenantId, Limiters) ->
     {ok, NLimiters}.
 
 %%--------------------------------------------------------------------
-%% management APIs
+%% Management APIs (Cluster Level)
 
 %% @doc create all limiters for a tenant
 -spec create(tenant_id(), limiter_config()) -> ok | {error, term()}.
 create(TenantId, Config) ->
-    %% TODO: 0. How to sync to all nodes
-    emqx_tenancy_limiter_sup:create(TenantId, Config).
+    multicall(?MODULE, do_create, [TenantId, Config]).
 
 %% @doc update all limiters for a tenant
 -spec update(tenant_id(), limiter_config()) -> ok | {error, term()}.
 update(TenantId, Config) ->
-    %% TODO: clustering?
-    emqx_tenancy_limiter_sup:update(TenantId, Config).
+    multicall(?MODULE, do_update, [TenantId, Config]).
 
 %% @doc remove a tenant's all limiters
 -spec remove(tenant_id()) -> ok.
 remove(TenantId) ->
-    %% TODO: clustering?
-    emqx_tenancy_limiter_sup:remove(TenantId).
+    multicall(?MODULE, do_remove, [TenantId]).
 
 %% @doc lookup all limiters info of a tenant in current node
 -spec info(tenant_id()) -> {ok, [limiter_info()]} | {error, term()}.
 info(TenantId) ->
+    Nodes = mria_mnesia:running_nodes(),
+    case emqx_rpc:multicall(Nodes, ?MODULE, do_info, [TenantId]) of
+        {Result, []} ->
+            NodesResult = lists:zip(Nodes, Result),
+            case return_ok_or_error(NodesResult) of
+                ok ->
+                    lists:foldl(
+                        fun({Node, {ok, Info}}, Acc) ->
+                            Acc#{Node => Info}
+                        end,
+                        #{},
+                        NodesResult
+                    );
+                {error, Reason} ->
+                    {error, Reason}
+            end;
+        {_, [Node | _]} ->
+            {error, {Node, badrpc}}
+    end.
+
+multicall(M, F, A) ->
+    Nodes = mria_mnesia:running_nodes(),
+    case emqx_rpc:multicall(Nodes, M, F, A) of
+        {Result, []} -> return_ok_or_error(lists:zip(Nodes, Result));
+        {_, [Node | _]} -> {error, {Node, badrpc}}
+    end.
+
+return_ok_or_error(Result) ->
+    Pred = fun
+        ({_, {error, _}}) -> true;
+        ({_, _}) -> false
+    end,
+    case lists:filter(Pred, Result) of
+        [] -> ok;
+        [{Node, {error, Reason}} | _] -> {error, {Node, Reason}}
+    end.
+
+%%--------------------------------------------------------------------
+%% Management APIs (Node Level)
+
+do_create(TenantId, Config) ->
+    emqx_tenancy_limiter_sup:create(TenantId, Config).
+
+do_update(TenantId, Config) ->
+    emqx_tenancy_limiter_sup:update(TenantId, Config).
+
+do_remove(TenantId) ->
+    emqx_tenancy_limiter_sup:remove(TenantId).
+
+do_info(TenantId) ->
     emqx_tenancy_limiter_sup:info(TenantId).
