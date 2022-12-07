@@ -85,8 +85,6 @@
     updated_at :: emqx_datetime:epoch_second() | '_' | undefined
 }).
 
--record(tenant_usage, {sni, usage}).
-
 -define(TENANCY, emqx_tenancy).
 
 %% type references

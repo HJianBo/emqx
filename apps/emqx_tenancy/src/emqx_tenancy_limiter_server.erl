@@ -154,10 +154,10 @@ handle_call(info, _From, State = #{limiters := Limiters}) ->
     {reply, Infos, State};
 handle_call({update, _Cfg}, _From, State) ->
     %% TODO: check cfg? hot-upgrade
+    %% add-ons update
     {reply, ok, State};
 handle_call(_Request, _From, State) ->
-    Reply = ok,
-    {reply, Reply, State}.
+    {reply, {error, unexpected_call}, State}.
 
 handle_cast(_Msg, State) ->
     {noreply, State}.
