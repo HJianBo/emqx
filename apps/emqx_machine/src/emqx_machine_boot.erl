@@ -131,7 +131,8 @@ basic_reboot_apps() ->
                 emqx_authz,
                 emqx_slow_subs,
                 emqx_auto_subscribe,
-                emqx_plugins
+                emqx_plugins,
+                emqx_tenancy
             ],
     case emqx_release:edition() of
         ce -> CE;

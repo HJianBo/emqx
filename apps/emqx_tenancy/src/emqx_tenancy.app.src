@@ -3,7 +3,7 @@
     {vsn, "0.1.0"},
     {registered, [emqx_tenancy_sup]},
     {mod, {emqx_tenancy_app, []}},
-    {applications, [kernel, stdlib, mnesia, minirest, hocon, emqx]},
+    {applications, [kernel, stdlib, emqx]},
     {env, []},
     {modules, []},
     {licenses, ["Apache 2.0"]},

@@ -380,7 +380,7 @@ fields("tenant") ->
             sc(
                 hoconsc:union([none, peersni]),
                 #{
-                    default => none,
+                    default => peersni,
                     desc => ?DESC(tenant_id_from)
                 }
             )},
@@ -398,6 +398,14 @@ fields("tenant") ->
                 #{
                     default => <<"$tenants/${tenant_id}/">>,
                     desc => ?DESC(tenant_topic_prefix)
+                }
+            )},
+        {"sample_interval",
+            sc(
+                duration_ms(),
+                #{
+                    default => "60s",
+                    desc => ?DESC(tenant_sample_interval)
                 }
             )}
     ];

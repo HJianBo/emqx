@@ -14,17 +14,23 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
--module(emqx_tenancy_app).
+-module(emqx_tenancy_proto_v1).
 
--behaviour(application).
+-behaviour(emqx_bpapi).
 
+-export([
+    introduced_in/0,
+    current_rate/2
+]).
+
+-define(RPC_TIMEOUT, 20).
+
+-include_lib("emqx/include/bpapi.hrl").
 -include("emqx_tenancy.hrl").
 
--export([start/2, stop/1]).
+introduced_in() ->
+    "5.0.12".
 
-start(_StartType, _StartArgs) ->
-    ok = mria_rlog:wait_for_shards([?COMMON_SHARD], infinity),
-    emqx_tenancy_sup:start_link().
-
-stop(_State) ->
-    ok.
+-spec current_rate(node(), tenant_id()) -> {ok, map()} | emqx_rpc:badrpc().
+current_rate(Node, Tenant) ->
+    rpc:call(Node, emqx_tenancy_monitor, current_rate, [Node, Tenant], ?RPC_TIMEOUT).
