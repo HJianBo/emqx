@@ -106,6 +106,7 @@
 %% API
 %%--------------------------------------------------------------------
 
+%% @doc Add/Update bucket
 -spec add_bucket(limiter_type(), limiter_id(), hocons:config() | undefined) -> ok.
 add_bucket(_TypeOrPid, _Id, undefined) ->
     ok;

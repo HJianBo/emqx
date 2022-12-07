@@ -46,9 +46,19 @@
         %%max_sub_rate := pos_integer() not support now
     }.
 
+%% @doc node level limiter info
 -type limiter_info() :: #{
+    type := limiter_type(),
+    %% All rate limite around cluster
     rate := pos_integer(),
-    obtained := pos_integer()
+    %% Allocated rate for current node
+    allocated_rate := pos_integer(),
+    %% Rate occurred on the cluster in last 5s
+    latest_cluster_rate := float(),
+    %% Rate occurred on this node in last 5s
+    latest_node_rate := float(),
+    %% Number of assigned tokens
+    obtained := float()
 }.
 
 -type common_config() ::
