@@ -80,14 +80,15 @@ read(Id) ->
 
 -spec update(tenant_id(), map()) -> {ok, map()} | {error, any()}.
 update(Id, #{<<"id">> := Id} = Tenant) ->
+    Config = maps:get(<<"quota">>, Tenant),
     case
         emqx_tenancy_limiter:update(
             Id,
-            with_limiter_configs(maps:get(<<"quota">>, Tenant))
+            with_limiter_configs(Config)
         )
     of
         ok ->
-            QuotaConfig = with_quota_config(Tenant),
+            QuotaConfig = with_quota_config(Config),
             ok = emqx_tenancy_quota:update(Id, QuotaConfig),
             trans(fun ?MODULE:do_update/1, [Tenant]);
         {error, Reason} ->

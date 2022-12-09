@@ -51,7 +51,8 @@
     name/1,
     restart/2,
     update_config/2,
-    update_config/3
+    update_config/3,
+    update_root_rate/3
 ]).
 
 %% number of tokens generated per period
@@ -133,6 +134,10 @@ update_config(Type, Config) ->
 update_config(Pid, Type, Config) ->
     call(Pid, {update_config, Type, Config}).
 
+-spec update_root_rate(pid(), limiter_type(), rate()) -> ok | {error, _}.
+update_root_rate(Pid, Type, Rate) ->
+    call(Pid, {update_root_rate, Type, Rate}).
+
 -spec start_link(atom(), limiter_type(), hocons:config()) -> _.
 start_link(noname, Type, Cfg) ->
     gen_server:start_link(?MODULE, [Type, Cfg], []).
@@ -183,6 +188,13 @@ handle_call({restart, Cfg}, _From, #{type := Type}) ->
 handle_call({update_config, Type, Config}, _From, #{type := Type}) ->
     %% XXX: why remove all buckets?
     NewState = init_tree(Type, Config),
+    {reply, ok, NewState};
+handle_call(
+    {update_root_rate, Type, Rate},
+    _From,
+    State = #{type := Type, root := Root}
+) ->
+    NewState = State#{root := Root#{rate := Rate}},
     {reply, ok, NewState};
 handle_call({add_bucket, Id, Cfg}, _From, State) ->
     NewState = do_add_bucket(Id, Cfg, State),

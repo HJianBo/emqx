@@ -41,7 +41,7 @@
 
 -type state() :: #{
     tenant_id := tenant_id(),
-    limiters := [limiter()],
+    limiters := #{limiter_type() => limiter()},
     last_stats := #{limiter_type() => #{node() => pos_integer()}},
     tref := reference() | undefined
 }.
@@ -83,7 +83,7 @@ type(max_bytes_in) -> bytes_in.
 
 -spec update(pid(), limiter_config()) -> ok | {error, term()}.
 update(Pid, Cfg) ->
-    call(Pid, {update, Cfg}).
+    call(Pid, {update, convert_key(Cfg)}).
 
 -spec info(pid()) -> [limiter_info()].
 info(Pid) ->
@@ -153,10 +153,13 @@ handle_call(info, _From, State = #{limiters := Limiters}) ->
         Limiters
     ),
     {reply, Infos, State};
-handle_call({update, _Cfg}, _From, State) ->
-    %% TODO: check cfg? hot-upgrade
-    %% add-ons update
-    {reply, ok, State};
+handle_call(
+    {update, Cfg},
+    _From,
+    State = #{tenant_id := TenantId, limiters := Limiters}
+) ->
+    Limiters1 = do_update(TenantId, maps:to_list(Cfg), Limiters),
+    {reply, ok, State#{limiters := Limiters1}};
 handle_call(_Request, _From, State) ->
     {reply, {error, unexpected_call}, State}.
 
@@ -186,23 +189,43 @@ code_change(_OldVsn, State, _Extra) ->
 start_limiter_servers(TenantId, Cfg) ->
     maps:map(
         fun(Type, Rate) ->
-            LimiterCfg = #{rate => inner_rate(Rate), burst => 0},
-            {ok, Pid} = emqx_limiter_server:start_link(
-                noname,
-                Type,
-                LimiterCfg
-            ),
-            ok = set_bucket_rate(TenantId, Type, Pid, Rate),
-            #{
-                rate => Rate,
-                allocated_rate => Rate,
-                server => Pid,
-                latest_cluster_rate => 0,
-                latest_node_rate => 0
-            }
+            start_limiter_server(TenantId, Type, Rate)
         end,
         Cfg
     ).
+
+start_limiter_server(TenantId, Type, Rate) ->
+    LimiterCfg = #{rate => inner_rate(Rate), burst => 0},
+    {ok, Pid} = emqx_limiter_server:start_link(
+        noname,
+        Type,
+        LimiterCfg
+    ),
+    ok = set_bucket_rate(TenantId, Type, Pid, Rate),
+    #{
+        rate => Rate,
+        allocated_rate => Rate,
+        server => Pid,
+        latest_cluster_rate => 0,
+        latest_node_rate => 0
+    }.
+
+do_update(_, [], Limiters) ->
+    Limiters;
+do_update(TenantId, [{Type, Rate} | More], Limiters) ->
+    Limiter =
+        case maps:get(Type, Limiters, undefined) of
+            undefined ->
+                start_limiter_server(TenantId, Type, Rate);
+            Limiter0 = #{server := Pid} ->
+                ok = set_server_rate(Pid, Type, Rate),
+                ok = set_bucket_rate(TenantId, Type, Pid, Rate),
+                Limiter0#{rate => Rate, allocated_rate => Rate}
+        end,
+    do_update(TenantId, More, Limiters#{Type => Limiter}).
+
+set_server_rate(Pid, Type, Rate) ->
+    ok = emqx_limiter_server:update_root_rate(Pid, Type, Rate).
 
 set_bucket_rate(TenantId, Type, Pid, Rate) ->
     ok = emqx_limiter_server:add_bucket(
