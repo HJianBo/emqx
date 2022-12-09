@@ -104,6 +104,7 @@ init([TenantId, Cfg]) ->
     State = #{
         tenant_id => TenantId,
         limiters => Limiters,
+        %% TODO: load fisrt
         last_stats => #{},
         tref => undefined
     },

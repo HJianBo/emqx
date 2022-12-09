@@ -52,7 +52,7 @@ load_tenants([]) ->
     ok;
 load_tenants([#tenant{id = Id, quota = Quota} | More]) ->
     ok = emqx_tenancy_limiter:do_create(Id, with_limiter_configs(Quota)),
-    %% TODO: quota servers
+    ok = emqx_tenancy_quota:do_create(Id, with_quota_config(Quota)),
     load_tenants(More).
 
 -spec create(map()) -> {ok, map()} | {error, any()}.
@@ -60,7 +60,6 @@ create(Tenant) ->
     Now = now_second(),
     Tenant1 = to_tenant(Tenant),
     Tenant2 = Tenant1#tenant{created_at = Now, updated_at = Now},
-    %% TODO: create quota servers
     case
         emqx_tenancy_limiter:create(
             Tenant2#tenant.id,
@@ -68,6 +67,8 @@ create(Tenant) ->
         )
     of
         ok ->
+            QuotaConfig = with_quota_config(Tenant2#tenant.quota),
+            ok = emqx_tenancy_quota:create(Tenant2#tenant.id, QuotaConfig),
             trans(fun ?MODULE:do_create/1, [Tenant2]);
         {error, Reason} ->
             {error, Reason}
@@ -79,7 +80,6 @@ read(Id) ->
 
 -spec update(tenant_id(), map()) -> {ok, map()} | {error, any()}.
 update(Id, #{<<"id">> := Id} = Tenant) ->
-    %% TODO: update quota servers
     case
         emqx_tenancy_limiter:update(
             Id,
@@ -87,6 +87,8 @@ update(Id, #{<<"id">> := Id} = Tenant) ->
         )
     of
         ok ->
+            QuotaConfig = with_quota_config(Tenant),
+            ok = emqx_tenancy_quota:update(Id, QuotaConfig),
             trans(fun ?MODULE:do_update/1, [Tenant]);
         {error, Reason} ->
             {error, Reason}
@@ -96,8 +98,8 @@ update(_Id, _) ->
 
 -spec delete(tenant_id()) -> ok.
 delete(Id) ->
-    %% TODO: delete quota servers
     ok = emqx_tenancy_limiter:remove(Id),
+    ok = emqx_tenancy_quota:remove(Id),
     trans(fun ?MODULE:do_delete/1, [Id]).
 
 trans(Fun, Args) ->
@@ -214,13 +216,26 @@ default_quota() ->
         <<"max_topic_alias">> => 65535
     }.
 
-with_limiter_configs(RawConfig) ->
+with_limiter_configs(Config) when is_map(Config) ->
     Keys = [
         <<"max_conn_rate">>,
         <<"max_messages_in">>,
         <<"max_bytes_in">>
     ],
-    emqx_map_lib:safe_atom_key_map(maps:with(Keys, RawConfig)).
+    emqx_map_lib:safe_atom_key_map(maps:with(Keys, Config)).
+
+with_quota_config(Config) when is_map(Config) ->
+    Keys = [
+        <<"max_connection">>,
+        <<"max_authn_users">>,
+        <<"max_authz_users">>,
+        <<"max_subscriptions">>,
+        <<"max_retained_messages">>,
+        <<"max_rules">>,
+        <<"max_resources">>,
+        <<"max_shared_subscriptions">>
+    ],
+    emqx_map_lib:safe_atom_key_map(maps:with(Keys, Config)).
 
 now_second() ->
     os:system_time(second).

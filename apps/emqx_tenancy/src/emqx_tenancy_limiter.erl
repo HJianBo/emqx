@@ -62,7 +62,7 @@ on_upgarde_limiters(TenantId, Limiters) ->
     {ok, NLimiters}.
 
 %%--------------------------------------------------------------------
-%% Management APIs (Cluster Level)
+%% Management APIs (cluster-level)
 
 %% @doc create all limiters for a tenant
 -spec create(tenant_id(), limiter_config()) -> ok | {error, term()}.
@@ -80,7 +80,7 @@ remove(TenantId) ->
     multicall(?MODULE, do_remove, [TenantId]).
 
 %% @doc lookup all limiters info of a tenant in current node
--spec info(tenant_id()) -> {ok, [limiter_info()]} | {error, term()}.
+-spec info(tenant_id()) -> {ok, #{node() => limiter_info()}} | {error, term()}.
 info(TenantId) ->
     Nodes = mria_mnesia:running_nodes(),
     case emqx_rpc:multicall(Nodes, ?MODULE, do_info, [TenantId]) of
@@ -120,7 +120,7 @@ return_ok_or_error(Result) ->
     end.
 
 %%--------------------------------------------------------------------
-%% Management APIs (Node Level)
+%% Management APIs (node-level)
 
 do_create(TenantId, Config) ->
     emqx_tenancy_limiter_sup:create(TenantId, Config).

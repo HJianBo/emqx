@@ -31,7 +31,7 @@ init([]) ->
     SupFlags = #{
         strategy => one_for_one,
         intensity => 10,
-        period => 5
+        period => 60
     },
     ChildSpecs = [
         #{

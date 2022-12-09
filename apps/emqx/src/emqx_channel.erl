@@ -1721,9 +1721,9 @@ check_banned(_ConnPkt, #channel{clientinfo = ClientInfo}) ->
 
 check_tenant_policy(_ConnPkt, #channel{clientinfo = ClientInfo}) ->
     %% XXX: check tenant quota, limit, etc.
-    case emqx_hooks:run_fold('tenant.connecting_check', [ClientInfo], ok) of
-        ok -> ok;
-        {error, Reason} -> {error, Reason}
+    case emqx_hooks:run_fold('quota.connections', [acquire, ClientInfo], allow) of
+        allow -> ok;
+        deny -> {error, ?RC_QUOTA_EXCEEDED}
     end.
 
 %%--------------------------------------------------------------------
