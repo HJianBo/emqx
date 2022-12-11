@@ -47,15 +47,15 @@
 %% hooks callback
 -export([
     on_quota_connections/3,
-    on_quota_authn_users/4,
-    on_quota_authz_users/4
+    on_quota_authn_users/3,
+    on_quota_authz_users/3
     %% TODO: more hooks
     %on_quota_subs/4,
     %on_quota_retained/4,
     %on_quota_rules/4,
     %on_quota_resources/4
 ]).
--export([acquire/2, release/2]).
+-export([acquire/3, release/3]).
 
 -type state() :: #{
     pmon := emqx_pmon:pmon(),
@@ -207,32 +207,39 @@ cast(Msg) ->
 %%--------------------------------------------------------------------
 %% Hooks Callback
 
--type quota_action() :: acquire | release.
+-type quota_action_name() :: acquire | release.
+
+-type quota_action() :: quota_action_name() | {quota_action_name(), pos_integer()}.
 
 -type permision() :: {stop, allow | deny} | ok.
 
 -spec on_quota_connections(quota_action(), emqx_types:clientinfo(), term()) -> permision().
-on_quota_connections(Action, _ClientInfo = #{tenant_id := TenantId}, _LastPermision) when
-    Action =:= acquire; Action =:= release
-->
-    ?MODULE:Action(TenantId, connections).
+on_quota_connections(_Action, #{tenant_id := ?NO_TENANT}, _LastPermision) ->
+    {stop, allow};
+on_quota_connections(Action, _ClientInfo = #{tenant_id := TenantId}, _LastPermision) ->
+    exec_quota_action(Action, [TenantId, connections]).
 
--spec on_quota_authn_users(quota_action(), tenant_id(), term(), term()) -> permision().
-on_quota_authn_users(Action, TenantId, _UserInfo, _LastPermision) when
-    Action =:= acquire; Action =:= release
-->
-    ?MODULE:Action(TenantId, authn_users).
+-spec on_quota_authn_users(quota_action(), tenant_id(), term()) -> permision().
+on_quota_authn_users(_Action, ?NO_TENANT, _LastPermision) ->
+    {stop, allow};
+on_quota_authn_users(Action, TenantId, _LastPermision) ->
+    exec_quota_action(Action, [TenantId, authn_users]).
 
--spec on_quota_authz_users(quota_action(), tenant_id(), term(), term()) -> permision().
-on_quota_authz_users(Action, TenantId, _Rule, _LastPermision) when
-    Action =:= acquire; Action =:= release
-->
-    ?MODULE:Action(TenantId, authz_users).
+-spec on_quota_authz_users(quota_action(), tenant_id(), term()) -> permision().
+on_quota_authz_users(_Action, ?NO_TENANT, _LastPermision) ->
+    {stop, allow};
+on_quota_authz_users(Action, TenantId, _LastPermision) ->
+    exec_quota_action(Action, [TenantId, authz_users]).
 
-acquire(TenantId, Resource) ->
+exec_quota_action(Action, Args) when Action == acquire; Action == release ->
+    erlang:apply(?MODULE, Action, [1 | Args]);
+exec_quota_action({Action, N}, Args) when Action == acquire; Action == release ->
+    erlang:apply(?MODULE, Action, [N | Args]).
+
+acquire(N, TenantId, Resource) ->
     try ets:lookup_element(?USAGE_TAB, TenantId, position(Resource)) of
-        #{max := Max, used := Used} when Max > Used ->
-            cast({acquired, TenantId, Resource, self()}),
+        #{max := Max, used := Used} when Max >= (Used + N) ->
+            cast({acquired, N, TenantId, Resource, self()}),
             {stop, allow};
         _ ->
             {stop, deny}
@@ -241,8 +248,8 @@ acquire(TenantId, Resource) ->
             {stop, deny}
     end.
 
-release(TenantId, Resource) ->
-    cast({released, TenantId, Resource}).
+release(N, TenantId, Resource) ->
+    cast({released, N, TenantId, Resource}).
 
 position(Resource) ->
     P = #{
@@ -319,7 +326,7 @@ handle_call(_Request, _From, State) ->
     {reply, Reply, State}.
 
 handle_cast(
-    {acquired, TenantId, Resource, Taker},
+    {acquired, N, TenantId, Resource, Taker},
     State = #{pmon := PMon, buffer := Buffer}
 ) ->
     PMon1 =
@@ -330,11 +337,11 @@ handle_cast(
                 PMon
         end,
     {Usage, LastSubmitTs} = maps:get(TenantId, Buffer),
-    TBuffer = {incr(Resource, 1, Usage), LastSubmitTs},
+    TBuffer = {incr(Resource, N, Usage), LastSubmitTs},
     Buffer1 = Buffer#{TenantId => TBuffer},
     {noreply, submit(State#{pmon := PMon1, buffer := Buffer1})};
-handle_cast({released, TenantId, Resource}, State = #{buffer := Buffer}) ->
-    Buffer1 = do_release(TenantId, Resource, Buffer),
+handle_cast({released, N, TenantId, Resource}, State = #{buffer := Buffer}) ->
+    Buffer1 = do_release(N, TenantId, Resource, Buffer),
     {noreply, submit(State#{buffer := Buffer1})}.
 
 handle_info(submit, State) ->
@@ -344,7 +351,7 @@ handle_info({'DOWN', _MRef, process, Pid, _Reason}, State = #{pmon := PMon, buff
     {Items, PMon1} = emqx_pmon:erase_all(ChanPids, PMon),
     Buffer1 = lists:foldl(
         fun({_, {TenantId, Resource}}, Acc) ->
-            do_release(TenantId, Resource, Acc)
+            do_release(1, TenantId, Resource, Acc)
         end,
         Buffer,
         Items
@@ -444,12 +451,12 @@ do_submit(Now, Need) ->
 %%--------------------------------------------------------------------
 %% clear
 
-do_release(TenantId, Resource, Buffer) ->
+do_release(N, TenantId, Resource, Buffer) ->
     case maps:get(TenantId, Buffer, undefined) of
         undefined ->
             Buffer;
         {Usage, LastSubmitTs} ->
-            TBuffer = {incr(Resource, -1, Usage), LastSubmitTs},
+            TBuffer = {incr(Resource, -N, Usage), LastSubmitTs},
             Buffer#{TenantId => TBuffer}
     end.
 
