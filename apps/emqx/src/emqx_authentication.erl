@@ -979,7 +979,7 @@ with_acquire_quota(Tenant, Fun) ->
                 {ok, _User} = Ok ->
                     Ok;
                 {error, _Reason} = Err ->
-                    with_release_quota(Tenant, fun() -> ok end),
+                    _ = with_release_quota(Tenant, fun() -> ok end),
                     Err
             end;
         deny ->

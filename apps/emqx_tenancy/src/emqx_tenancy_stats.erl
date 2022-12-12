@@ -17,6 +17,7 @@
 -module(emqx_tenancy_stats).
 
 -include("emqx_tenancy.hrl").
+-include_lib("stdlib/include/ms_transform.hrl").
 
 -behaviour(gen_server).
 
@@ -229,8 +230,9 @@ start_link() ->
 init([]) ->
     ok = mria:wait_for_tables([?TENANCY]),
     erlang:process_flag(trap_exit, true),
-    ets:new(?STATS, [{write_concurrency, true}, public, named_table, {keypos, #stats.tenant_id}]),
-    ets:new(?SAMPLE, [{write_concurrency, true}, public, named_table, {keypos, 1}]),
+    TabOpts = [public, {write_concurrency, true}],
+    emqx_tables:new(?STATS, [{keypos, #stats.tenant_id} | TabOpts]),
+    emqx_tables:new(?SAMPLE, [{keypos, 1} | TabOpts]),
     enable_hooks(),
     {ok, #{}, {continue, load_stats}}.
 
@@ -425,7 +427,8 @@ sample_msg_retained() ->
     ).
 
 update_counter(Tenant, UpdateOp, Default) ->
-    ets:update_counter(?STATS, Tenant, UpdateOp, Default).
+    _ = ets:update_counter(?STATS, Tenant, UpdateOp, Default),
+    ok.
 
 stats_to_map(Stats) ->
     #stats{
@@ -473,7 +476,7 @@ rate(Val1, Val0, Second) ->
     (Val1 - Val0) div Second.
 
 get_enabled_tenant() ->
-    Spec = [{#tenant{status = enabled, id = '$1', _ = '_'}, [], ['$1']}],
+    Spec = ets:fun2ms(fun(#tenant{status = enabled, id = Id}) -> Id end),
     ets:select(?TENANCY, Spec).
 
 save_stats_to_db() ->

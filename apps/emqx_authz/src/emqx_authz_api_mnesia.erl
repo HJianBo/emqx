@@ -554,8 +554,7 @@ user(delete, Req = #{bindings := #{username := Username}}) ->
                 fun() ->
                     emqx_authz_mnesia:delete_rules({username, Tenant, Username})
                 end
-            ),
-            {204}
+            )
     end.
 
 client(get, Req = #{bindings := #{clientid := ClientID}}) ->
@@ -607,8 +606,7 @@ client(delete, Req = #{bindings := #{clientid := ClientID}}) ->
                 fun() ->
                     emqx_authz_mnesia:delete_rules({clientid, Tenant, ClientID})
                 end
-            ),
-            {204}
+            )
     end.
 
 all(get, Req) ->

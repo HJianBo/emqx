@@ -412,7 +412,7 @@ max_abs_diff(Usage) when is_record(Usage, usage) ->
     lists:foldl(Fun, 0, lists:seq(3, record_info(size, usage))).
 
 do_submit(Now, Need) ->
-    trans(
+    ok = trans(
         fun() ->
             maps:foreach(
                 fun(TenantId, {Usage, _}) ->
