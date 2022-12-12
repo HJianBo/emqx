@@ -195,7 +195,7 @@ default_configs() ->
         <<"quotas">> => #{
             <<"max_connections">> => 1000,
             <<"max_authn_users">> => 2000,
-            <<"max_authz_users">> => 2000
+            <<"max_authz_rules">> => 2000
         },
         <<"limiters">> => #{
             <<"max_messages_in">> => 1000,
@@ -215,7 +215,7 @@ with_quota_config(Config0) when is_map(Config0) ->
     Keys = [
         <<"max_connections">>,
         <<"max_authn_users">>,
-        <<"max_authz_users">>
+        <<"max_authz_rules">>
     ],
     Config = maps:get(<<"quotas">>, Config0),
     emqx_map_lib:safe_atom_key_map(maps:with(Keys, Config)).

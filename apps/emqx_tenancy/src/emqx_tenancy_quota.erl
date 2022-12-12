@@ -48,7 +48,7 @@
 -export([
     on_quota_connections/3,
     on_quota_authn_users/3,
-    on_quota_authz_users/3
+    on_quota_authz_rules/3
 ]).
 -export([acquire/3, release/3]).
 
@@ -66,7 +66,7 @@
     id :: tenant_id(),
     connections :: usage_counter(),
     authn_users :: usage_counter(),
-    authz_users :: usage_counter(),
+    authz_rules :: usage_counter(),
     subs :: usage_counter(),
     retained :: usage_counter(),
     rules :: usage_counter(),
@@ -79,7 +79,7 @@
 -type usage_info() :: #{
     connections := usage_counter(),
     authn_users := usage_counter(),
-    authz_users := usage_counter(),
+    authz_rules := usage_counter(),
     subs := usage_counter(),
     retained := usage_counter(),
     rules := usage_counter(),
@@ -105,7 +105,7 @@ start_link() ->
 load() ->
     emqx_hooks:put('quota.connections', {?MODULE, on_quota_connections, []}, 0),
     emqx_hooks:put('quota.authn_users', {?MODULE, on_quota_authn_users, []}, 0),
-    emqx_hooks:put('quota.authz_users', {?MODULE, on_quota_authz_users, []}, 0).
+    emqx_hooks:put('quota.authz_rules', {?MODULE, on_quota_authz_rules, []}, 0).
 
 %% @doc Unload tenanct limiter
 %% It's only works for new connections
@@ -113,7 +113,7 @@ load() ->
 unload() ->
     emqx_hooks:del('quota.connections', {?MODULE, on_quota_connections, []}),
     emqx_hooks:del('quota.authn_users', {?MODULE, on_quota_authn_users, []}),
-    emqx_hooks:del('quota.authz_users', {?MODULE, on_quota_authz_users, []}).
+    emqx_hooks:del('quota.authz_rules', {?MODULE, on_quota_authz_rules, []}).
 
 %%--------------------------------------------------------------------
 %% Management APIs (cluster-level)
@@ -220,11 +220,11 @@ on_quota_authn_users(_Action, ?NO_TENANT, _LastPermision) ->
 on_quota_authn_users(Action, TenantId, _LastPermision) ->
     exec_quota_action(Action, [TenantId, authn_users]).
 
--spec on_quota_authz_users(quota_action(), tenant_id(), term()) -> permision().
-on_quota_authz_users(_Action, ?NO_TENANT, _LastPermision) ->
+-spec on_quota_authz_rules(quota_action(), tenant_id(), term()) -> permision().
+on_quota_authz_rules(_Action, ?NO_TENANT, _LastPermision) ->
     {stop, allow};
-on_quota_authz_users(Action, TenantId, _LastPermision) ->
-    exec_quota_action(Action, [TenantId, authz_users]).
+on_quota_authz_rules(Action, TenantId, _LastPermision) ->
+    exec_quota_action(Action, [TenantId, authz_rules]).
 
 exec_quota_action(Action, Args) when Action == acquire; Action == release ->
     erlang:apply(?MODULE, Action, [1 | Args]);
@@ -250,7 +250,7 @@ position(Resource) ->
     P = #{
         connections => #usage.connections,
         authn_users => #usage.authn_users,
-        authz_users => #usage.authz_users,
+        authz_rules => #usage.authz_rules,
         subs => #usage.subs,
         retained => #usage.retained,
         rules => #usage.rules,
@@ -270,7 +270,7 @@ init([]) ->
         {type, set},
         {rlog_shard, ?TENANCY_SHARD},
         %% FIXME: ram_copies enough?
-        %% but authn,authz_users, retained, etc. is disc_copies table
+        %% but authn,authz_rules, retained, etc. is disc_copies table
         {storage, ram_copies},
         {record_name, usage},
         {attributes, record_info(fields, usage)},
@@ -482,14 +482,14 @@ config_to_usage(
     #{
         max_connections := MaxConns,
         max_authn_users := MaxAuthN,
-        max_authz_users := MaxAuthZ
+        max_authz_rules := MaxAuthZ
     }
 ) ->
     #usage{
         id = TenantId,
         connections = counter(MaxConns),
         authn_users = counter(MaxAuthN),
-        authz_users = counter(MaxAuthZ),
+        authz_rules = counter(MaxAuthZ),
         subs = counter(infinity),
         retained = counter(infinity),
         rules = counter(infinity),
@@ -500,7 +500,7 @@ config_to_usage(
 usage_to_info(#usage{
     connections = Conns,
     authn_users = AuthN,
-    authz_users = AuthZ,
+    authz_rules = AuthZ,
     subs = Subs,
     retained = Retained,
     rules = Rules,
@@ -510,7 +510,7 @@ usage_to_info(#usage{
     #{
         connections => Conns,
         authn_users => AuthN,
-        authz_users => AuthZ,
+        authz_rules => AuthZ,
         subs => Subs,
         retained => Retained,
         rules => Rules,
@@ -525,8 +525,8 @@ incr(connections, N, Usage = #usage{connections = C = #{used := Used}}) ->
     Usage#usage{connections = C#{used := Used + N}};
 incr(authn_users, N, Usage = #usage{authn_users = C = #{used := Used}}) ->
     Usage#usage{authn_users = C#{used := Used + N}};
-incr(authz_users, N, Usage = #usage{authz_users = C = #{used := Used}}) ->
-    Usage#usage{authz_users = C#{used := Used + N}};
+incr(authz_rules, N, Usage = #usage{authz_rules = C = #{used := Used}}) ->
+    Usage#usage{authz_rules = C#{used := Used + N}};
 incr(subs, N, Usage = #usage{subs = C = #{used := Used}}) ->
     Usage#usage{subs = C#{used := Used + N}};
 incr(retained, N, Usage = #usage{retained = C = #{used := Used}}) ->

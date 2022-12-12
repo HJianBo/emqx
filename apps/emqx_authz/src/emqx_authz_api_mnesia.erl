@@ -660,7 +660,7 @@ count_rules_number(Users) when is_list(Users) ->
     lists:sum(lists:map(fun(#{<<"rules">> := Rules}) -> length(Rules) end, Users)).
 
 with_acquire_quota(Tenant, Count, Fun) ->
-    case emqx_hooks:run_fold('quota.authz_users', [{acquire, Count}, Tenant], allow) of
+    case emqx_hooks:run_fold('quota.authz_rules', [{acquire, Count}, Tenant], allow) of
         allow ->
             %% assert
             ok = Fun(),
@@ -675,7 +675,7 @@ with_acquire_quota(Tenant, Count, Fun) ->
 with_release_quota(Tenant, Count, Fun) ->
     %% assert
     ok = Fun(),
-    _ = emqx_hooks:run_fold('quota.authz_users', [{release, Count}, Tenant], allow),
+    _ = emqx_hooks:run_fold('quota.authz_rules', [{release, Count}, Tenant], allow),
     {204}.
 
 count_new_rules_number(Key, NewRules) ->

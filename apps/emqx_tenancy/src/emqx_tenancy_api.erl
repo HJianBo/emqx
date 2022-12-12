@@ -188,7 +188,7 @@ fields(quotas) ->
     [
         {max_connections, ?HOCON(integer(), #{desc => <<"Max connections">>, default => 1000})},
         {max_authn_users, ?HOCON(integer(), #{desc => <<"Max authn users">>, default => 2000})},
-        {max_authz_users, ?HOCON(integer(), #{desc => <<"Max authz users">>, default => 2000})}
+        {max_authz_rules, ?HOCON(integer(), #{desc => <<"Max authz users">>, default => 2000})}
         %% TODO: 2.0
         %{max_retained_messages,
         %    ?HOCON(integer(), #{desc => <<"Max retained messages">>, default => 1000})},
