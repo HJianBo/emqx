@@ -80,7 +80,7 @@ t_create(_Config) ->
     {ok, Create} = create_tenant(Id),
     ?assertMatch(
         #{
-            <<"quota">> := #{},
+            <<"configs">> := #{},
             <<"created_at">> := _,
             <<"updated_at">> := _,
             <<"desc">> := _,
@@ -92,8 +92,8 @@ t_create(_Config) ->
     {ok, #{<<"data">> := List}} = list_tenant([]),
     ?assert(lists:member(Create, List)),
     {ok, Tenant} = read_tenant(Id),
-    #{<<"quota">> := Quota} = Create,
-    ?assertEqual(emqx_json:encode(Quota), emqx_json:encode(emqx_tenancy:default_quota())),
+    #{<<"configs">> := Configs} = Create,
+    ?assertEqual(emqx_json:encode(Configs), emqx_json:encode(emqx_tenancy:default_configs())),
     ?assertEqual(Create, Tenant),
     ?assertMatch({ok, 404, _}, read_tenant(<<"emqx-tenant-id-no-exist">>)),
     ok.

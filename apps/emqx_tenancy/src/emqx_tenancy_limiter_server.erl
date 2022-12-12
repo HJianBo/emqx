@@ -76,8 +76,6 @@ start_link(TenantId, Cfg) ->
 convert_key(Cfg) ->
     maps:fold(fun(Key, Val, Acc) -> Acc#{type(Key) => Val} end, #{}, Cfg).
 
-%% TODO: more types max_sub_in?
-type(max_conn_rate) -> connection;
 type(max_messages_in) -> message_in;
 type(max_bytes_in) -> bytes_in.
 

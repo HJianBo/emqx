@@ -50,7 +50,7 @@ load_tenants() ->
     load_tenants(ets:tab2list(?TENANCY)).
 load_tenants([]) ->
     ok;
-load_tenants([#tenant{id = Id, quota = Quota} | More]) ->
+load_tenants([#tenant{id = Id, configs = Quota} | More]) ->
     ok = emqx_tenancy_limiter:do_create(Id, with_limiter_configs(Quota)),
     ok = emqx_tenancy_quota:do_create(Id, with_quota_config(Quota)),
     load_tenants(More).
@@ -63,11 +63,11 @@ create(Tenant) ->
     case
         emqx_tenancy_limiter:create(
             Tenant2#tenant.id,
-            with_limiter_configs(Tenant2#tenant.quota)
+            with_limiter_configs(Tenant2#tenant.configs)
         )
     of
         ok ->
-            QuotaConfig = with_quota_config(Tenant2#tenant.quota),
+            QuotaConfig = with_quota_config(Tenant2#tenant.configs),
             ok = emqx_tenancy_quota:create(Tenant2#tenant.id, QuotaConfig),
             trans(fun ?MODULE:do_create/1, [Tenant2]);
         {error, Reason} ->
@@ -80,7 +80,7 @@ read(Id) ->
 
 -spec update(tenant_id(), map()) -> {ok, map()} | {error, any()}.
 update(Id, #{<<"id">> := Id} = Tenant) ->
-    Config = maps:get(<<"quota">>, Tenant),
+    Config = maps:get(<<"configs">>, Tenant),
     case
         emqx_tenancy_limiter:update(
             Id,
@@ -131,14 +131,14 @@ do_update(Tenant = #{<<"id">> := Id}) ->
             mnesia:abort(not_found);
         [Prev] ->
             #tenant{
-                quota = Quota,
+                configs = Configs,
                 status = Status,
                 created_at = CreatedAt,
                 desc = Desc
             } = Prev,
             NewTenant = Prev#tenant{
                 desc = maps:get(<<"desc">>, Tenant, Desc),
-                quota = maps:get(<<"quota">>, Tenant, Quota),
+                configs = maps:get(<<"configs">>, Tenant, Configs),
                 status = maps:get(<<"status">>, Tenant, Status),
                 created_at = CreatedAt,
                 updated_at = now_second()
@@ -157,7 +157,7 @@ format(Tenants) when is_list(Tenants) ->
     [format(Tenant) || Tenant <- Tenants];
 format(#tenant{
     id = Id,
-    quota = Quota,
+    configs = Configs,
     status = Status,
     updated_at = UpdatedAt,
     created_at = CreatedAt,
@@ -165,7 +165,7 @@ format(#tenant{
 }) ->
     #{
         id => Id,
-        quota => Quota,
+        configs => Configs,
         status => Status,
         created_at => to_rfc3339(CreatedAt),
         updated_at => to_rfc3339(UpdatedAt),
@@ -178,64 +178,46 @@ to_rfc3339(Second) ->
 to_tenant(Tenant) ->
     #{
         <<"id">> := Id,
-        <<"quota">> := Quota0,
+        <<"configs">> := Configs,
         <<"status">> := Status,
         <<"desc">> := Desc
     } = Tenant,
-    Quota1 = maps:merge(default_quota(), Quota0),
+    Configs1 = maps:merge(default_configs(), Configs),
     #tenant{
         id = Id,
-        quota = Quota1,
+        configs = Configs1,
         status = Status,
         desc = Desc
     }.
 
-default_quota() ->
+default_configs() ->
     #{
-        <<"max_connection">> => 10000,
-        <<"max_conn_rate">> => 1000,
-        <<"max_messages_in">> => 1000,
-        <<"max_bytes_in">> => 100000,
-        <<"max_subs_rate">> => 500,
-        <<"max_authn_users">> => 10000,
-        <<"max_authz_users">> => 10000,
-        <<"max_retained_messages">> => 1000,
-        <<"max_rules">> => 1000,
-        <<"max_resources">> => 50,
-        <<"max_shared_subscriptions">> => 100,
-        <<"min_keepalive">> => 30,
-        <<"max_keepalive">> => 3600,
-        <<"session_expiry_interval">> => 7200,
-        <<"max_mqueue_len">> => 32,
-        <<"max_inflight">> => 100,
-        <<"max_awaiting_rel">> => 100,
-        <<"max_subscriptions">> => infinity,
-        <<"max_packet_size">> => 1048576,
-        <<"max_clientid_len">> => 65535,
-        <<"max_topic_levels">> => 65535,
-        <<"max_qos_allowed">> => 2,
-        <<"max_topic_alias">> => 65535
+        <<"quotas">> => #{
+            <<"max_connections">> => 1000,
+            <<"max_authn_users">> => 2000,
+            <<"max_authz_users">> => 2000
+        },
+        <<"limiters">> => #{
+            <<"max_messages_in">> => 1000,
+            <<"max_bytes_in">> => 10 * 1024 * 1024
+        }
     }.
 
-with_limiter_configs(Config) when is_map(Config) ->
+with_limiter_configs(Config0) when is_map(Config0) ->
     Keys = [
-        <<"max_conn_rate">>,
         <<"max_messages_in">>,
         <<"max_bytes_in">>
     ],
+    Config = maps:get(<<"limiters">>, Config0),
     emqx_map_lib:safe_atom_key_map(maps:with(Keys, Config)).
 
-with_quota_config(Config) when is_map(Config) ->
+with_quota_config(Config0) when is_map(Config0) ->
     Keys = [
-        <<"max_connection">>,
+        <<"max_connections">>,
         <<"max_authn_users">>,
-        <<"max_authz_users">>,
-        <<"max_subscriptions">>,
-        <<"max_retained_messages">>,
-        <<"max_rules">>,
-        <<"max_resources">>,
-        <<"max_shared_subscriptions">>
+        <<"max_authz_users">>
     ],
+    Config = maps:get(<<"quotas">>, Config0),
     emqx_map_lib:safe_atom_key_map(maps:with(Keys, Config)).
 
 now_second() ->

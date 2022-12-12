@@ -165,38 +165,50 @@ fields(id) ->
                 }
             )}
     ];
-fields(quota) ->
+fields(tenant_configs) ->
     [
-        {max_connection, ?HOCON(integer(), #{desc => <<"Max connection">>, default => 10000})},
-        {max_conn_rate, ?HOCON(integer(), #{desc => <<"Max connection rate">>, default => 1000})},
+        {quotas, ?HOCON(?REF(quotas))},
+        {limiters, ?HOCON(?REF(limiters))}
+        %% TODO: 2.0
+        %{min_keepalive, ?HOCON(integer(), #{desc => <<"Min keepalive second">>, default => 30})},
+        %{max_keepalive, ?HOCON(integer(), #{desc => <<"Max keepalive">>, default => 3600})},
+        %{session_expiry_interval,
+        %    ?HOCON(integer(), #{desc => <<"Session expiry interval">>, default => 7200})},
+        %{max_mqueue_len, ?HOCON(integer(), #{desc => <<"Max mqueue len">>, default => 32})},
+        %{max_inflight, ?HOCON(integer(), #{desc => <<"Max inflight">>, default => 100})},
+        %{max_awaiting_rel, ?HOCON(integer(), #{desc => <<"Max awaiting rel">>, default => 100})},
+        %{max_packet_size, ?HOCON(integer(), #{desc => <<"Max packet size">>, default => 1048576})},
+        %{max_clientid_len, ?HOCON(integer(), #{desc => <<"Max clientid len">>, default => 65535})},
+        %{max_topic_levels, ?HOCON(integer(), #{desc => <<"Max topic levels">>, default => 65535})},
+        %{max_qos_allowed, ?HOCON(integer(), #{desc => <<"Max qos allowed">>, default => 2})},
+        %{max_topic_alias, ?HOCON(integer(), #{desc => <<"Max topic alias">>, default => 65535})}
+        %force_shutdown_policy object {"max_message_queue_len": 1000,"max_heap_size": "32MB"}
+    ];
+fields(quotas) ->
+    [
+        {max_connections, ?HOCON(integer(), #{desc => <<"Max connections">>, default => 1000})},
+        {max_authn_users, ?HOCON(integer(), #{desc => <<"Max authn users">>, default => 2000})},
+        {max_authz_users, ?HOCON(integer(), #{desc => <<"Max authz users">>, default => 2000})}
+        %% TODO: 2.0
+        %{max_retained_messages,
+        %    ?HOCON(integer(), #{desc => <<"Max retained messages">>, default => 1000})},
+        %{max_rules, ?HOCON(integer(), #{desc => <<"Max rules">>, default => 1000})},
+        %{max_resources, ?HOCON(integer(), #{desc => <<"Max resources">>, default => 50})},
+        %{max_subscriptions,
+        %    ?HOCON(?UNION([integer(), infinity]), #{
+        %        desc => <<"Max subscriptions">>, default => infinity
+        %    })},
+        %{max_shared_subscriptions,
+        %    ?HOCON(integer(), #{desc => <<"Max shared subscriptions">>, default => 100})},
+    ];
+fields(limiters) ->
+    [
         {max_messages_in, ?HOCON(integer(), #{desc => <<"Max messages in">>, default => 1000})},
-        {max_bytes_in, ?HOCON(integer(), #{desc => <<"Max bytes in">>, default => 100000})},
-        {max_subs_rate, ?HOCON(integer(), #{desc => <<"Max subscriptions rate">>, default => 500})},
-        {max_authn_users, ?HOCON(integer(), #{desc => <<"Max authn users">>, default => 10000})},
-        {max_authz_users, ?HOCON(integer(), #{desc => <<"Max authz users">>, default => 10000})},
-        {max_retained_messages,
-            ?HOCON(integer(), #{desc => <<"Max retained messages">>, default => 1000})},
-        {max_rules, ?HOCON(integer(), #{desc => <<"Max rules">>, default => 1000})},
-        {max_resources, ?HOCON(integer(), #{desc => <<"Max resources">>, default => 50})},
-        {max_shared_subscriptions,
-            ?HOCON(integer(), #{desc => <<"Max shared subscriptions">>, default => 100})},
-        {min_keepalive, ?HOCON(integer(), #{desc => <<"Min keepalive second">>, default => 30})},
-        {max_keepalive, ?HOCON(integer(), #{desc => <<"Max keepalive">>, default => 3600})},
-        {session_expiry_interval,
-            ?HOCON(integer(), #{desc => <<"Session expiry interval">>, default => 7200})},
-        {max_mqueue_len, ?HOCON(integer(), #{desc => <<"Max mqueue len">>, default => 32})},
-        {max_inflight, ?HOCON(integer(), #{desc => <<"Max inflight">>, default => 100})},
-        {max_awaiting_rel, ?HOCON(integer(), #{desc => <<"Max awaiting rel">>, default => 100})},
-        {max_subscriptions,
-            ?HOCON(?UNION([integer(), infinity]), #{
-                desc => <<"Max subscriptions">>, default => infinity
-            })},
-        {max_packet_size, ?HOCON(integer(), #{desc => <<"Max packet size">>, default => 1048576})},
-        {max_clientid_len, ?HOCON(integer(), #{desc => <<"Max clientid len">>, default => 65535})},
-        {max_topic_levels, ?HOCON(integer(), #{desc => <<"Max topic levels">>, default => 65535})},
-        {max_qos_allowed, ?HOCON(integer(), #{desc => <<"Max qos allowed">>, default => 2})},
-        {max_topic_alias, ?HOCON(integer(), #{desc => <<"Max topic alias">>, default => 65535})}
-        %% TODO ? force_shutdown_policy object {"max_message_queue_len": 1000,"max_heap_size": "32MB"}
+        {max_bytes_in,
+            ?HOCON(integer(), #{desc => <<"Max bytes in">>, default => 10 * 1024 * 1024})}
+        %% TODO: 2.0
+        %{max_conn_rate, ?HOCON(integer(), #{desc => <<"Max connection rate">>, default => 100})},
+        %{max_subs_rate, ?HOCON(integer(), #{desc => <<"Max subscriptions rate">>, default => 500})},
     ].
 
 tenant_field(Required) ->
@@ -211,7 +223,7 @@ tenant_field(Required) ->
                     example => <<"emqx-tenant-id">>
                 }
             )},
-        {quota, ?HOCON(?REF(quota), #{required => Required})},
+        {configs, ?HOCON(?REF(tenant_configs), #{required => Required})},
         {status,
             ?HOCON(
                 ?ENUM([disabled, enabled]),

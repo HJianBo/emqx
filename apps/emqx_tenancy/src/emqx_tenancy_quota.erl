@@ -49,11 +49,6 @@
     on_quota_connections/3,
     on_quota_authn_users/3,
     on_quota_authz_users/3
-    %% TODO: more hooks
-    %on_quota_subs/4,
-    %on_quota_retained/4,
-    %on_quota_rules/4,
-    %on_quota_resources/4
 ]).
 -export([acquire/3, release/3]).
 
@@ -485,14 +480,9 @@ update_usage_record(New, Old) when is_record(New, usage), is_record(Old, usage) 
 config_to_usage(
     TenantId,
     #{
-        max_connection := MaxConns,
+        max_connections := MaxConns,
         max_authn_users := MaxAuthN,
-        max_authz_users := MaxAuthZ,
-        max_subscriptions := MaxSubs,
-        max_retained_messages := MaxRetained,
-        max_rules := MaxRules,
-        max_resources := MaxRes,
-        max_shared_subscriptions := MaxSharedSub
+        max_authz_users := MaxAuthZ
     }
 ) ->
     #usage{
@@ -500,11 +490,11 @@ config_to_usage(
         connections = counter(MaxConns),
         authn_users = counter(MaxAuthN),
         authz_users = counter(MaxAuthZ),
-        subs = counter(MaxSubs),
-        retained = counter(MaxRetained),
-        rules = counter(MaxRules),
-        resources = counter(MaxRes),
-        shared_subs = counter(MaxSharedSub)
+        subs = counter(infinity),
+        retained = counter(infinity),
+        rules = counter(infinity),
+        resources = counter(infinity),
+        shared_subs = counter(infinity)
     }.
 
 usage_to_info(#usage{
