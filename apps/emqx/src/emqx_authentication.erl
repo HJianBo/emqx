@@ -526,10 +526,20 @@ handle_call({import_users, ChainName, AuthenticatorID, Tenant, Filename}, _From,
     Reply = call_authenticator(ChainName, AuthenticatorID, import_users, [Tenant, Filename]),
     reply(Reply, State);
 handle_call({add_user, ChainName, AuthenticatorID, Tenant, UserInfo}, _From, State) ->
-    Reply = call_authenticator(ChainName, AuthenticatorID, add_user, [Tenant, UserInfo]),
+    Reply = with_acquire_quota(
+        Tenant,
+        fun() ->
+            call_authenticator(ChainName, AuthenticatorID, add_user, [Tenant, UserInfo])
+        end
+    ),
     reply(Reply, State);
 handle_call({delete_user, ChainName, AuthenticatorID, Tenant, UserID}, _From, State) ->
-    Reply = call_authenticator(ChainName, AuthenticatorID, delete_user, [Tenant, UserID]),
+    Reply = with_release_quota(
+        Tenant,
+        fun() ->
+            call_authenticator(ChainName, AuthenticatorID, delete_user, [Tenant, UserID])
+        end
+    ),
     reply(Reply, State);
 handle_call({update_user, ChainName, AuthenticatorID, Tenant, UserID, NewUserInfo}, _From, State) ->
     Reply = call_authenticator(ChainName, AuthenticatorID, update_user, [
@@ -961,3 +971,26 @@ inc_authenticate_metric('authentication.success.anonymous' = Metric) ->
     emqx_metrics:inc('authentication.success');
 inc_authenticate_metric(Metric) ->
     emqx_metrics:inc(Metric).
+
+with_acquire_quota(Tenant, Fun) ->
+    case emqx_hooks:run_fold('quota.authn_users', [acquire, Tenant], allow) of
+        allow ->
+            case Fun() of
+                {ok, _User} = Ok ->
+                    Ok;
+                {error, _Reason} = Err ->
+                    _ = with_release_quota(Tenant, fun() -> ok end),
+                    Err
+            end;
+        deny ->
+            {error, quota_exceeded}
+    end.
+
+with_release_quota(Tenant, Fun) ->
+    case Fun() of
+        ok ->
+            _ = emqx_hooks:run_fold('quota.authn_users', [release, Tenant], allow),
+            ok;
+        {error, _Reason} = Err ->
+            Err
+    end.

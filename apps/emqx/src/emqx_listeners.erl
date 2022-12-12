@@ -585,7 +585,7 @@ limiter(Opts) ->
 add_limiter_bucket(Id, #{limiter := Limiter}) ->
     maps:fold(
         fun(Type, Cfg, _) ->
-            emqx_limiter_server:add_bucket(Id, Type, Cfg)
+            emqx_limiter_server:add_bucket(Type, Id, Cfg)
         end,
         ok,
         maps:without([client], Limiter)
@@ -596,7 +596,7 @@ add_limiter_bucket(_Id, _Cfg) ->
 del_limiter_bucket(Id, #{limiter := Limiters}) ->
     lists:foreach(
         fun(Type) ->
-            emqx_limiter_server:del_bucket(Id, Type)
+            emqx_limiter_server:del_bucket(Type, Id)
         end,
         maps:keys(Limiters)
     );

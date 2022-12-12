@@ -42,15 +42,17 @@
 
 -export([
     start_link/2,
-    connect/3,
+    start_link/3,
     add_bucket/3,
     del_bucket/2,
     get_initial_val/1,
     whereis/1,
     info/1,
     name/1,
-    restart/1,
-    update_config/2
+    restart/2,
+    update_config/2,
+    update_config/3,
+    update_root_rate/3
 ]).
 
 %% number of tokens generated per period
@@ -92,9 +94,6 @@
 -type decimal() :: emqx_limiter_decimal:decimal().
 -type index() :: pos_integer().
 
--define(CALL(Type, Msg), call(Type, Msg)).
--define(CALL(Type), ?CALL(Type, ?FUNCTION_NAME)).
-
 %% minimum coefficient for overloaded limiter
 -define(OVERLOAD_MIN_ALLOC, 0.3).
 -define(COUNTER_SIZE, 8).
@@ -107,90 +106,58 @@
 %%--------------------------------------------------------------------
 %% API
 %%--------------------------------------------------------------------
--spec connect(
-    limiter_id(),
-    limiter_type(),
-    bucket_name() | #{limiter_type() => bucket_name() | undefined}
-) ->
-    {ok, emqx_htb_limiter:limiter()} | {error, _}.
-%% If no bucket path is set in config, there will be no limit
-connect(_Id, _Type, undefined) ->
-    {ok, emqx_htb_limiter:make_infinity_limiter()};
-connect(Id, Type, Cfg) ->
-    case find_limiter_cfg(Type, Cfg) of
-        {undefined, _} ->
-            {ok, emqx_htb_limiter:make_infinity_limiter()};
-        {
-            #{
-                rate := BucketRate,
-                capacity := BucketSize
-            },
-            #{rate := CliRate, capacity := CliSize} = ClientCfg
-        } ->
-            case emqx_limiter_manager:find_bucket(Id, Type) of
-                {ok, Bucket} ->
-                    {ok,
-                        if
-                            CliRate < BucketRate orelse CliSize < BucketSize ->
-                                emqx_htb_limiter:make_token_bucket_limiter(ClientCfg, Bucket);
-                            true ->
-                                emqx_htb_limiter:make_ref_limiter(ClientCfg, Bucket)
-                        end};
-                undefined ->
-                    ?SLOG(error, #{msg => "bucket_not_found", type => Type, id => Id}),
-                    {error, invalid_bucket}
-            end
-    end.
 
--spec add_bucket(limiter_id(), limiter_type(), hocons:config() | undefined) -> ok.
-add_bucket(_Id, _Type, undefine) ->
+%% @doc Add/Update bucket
+-spec add_bucket(limiter_type() | pid(), limiter_id(), hocons:config() | undefined) -> ok.
+add_bucket(_TypeOrPid, _Id, undefined) ->
     ok;
-add_bucket(Id, Type, Cfg) ->
-    ?CALL(Type, {add_bucket, Id, Cfg}).
+add_bucket(TypeOrPid, Id, Cfg) ->
+    call(TypeOrPid, {add_bucket, Id, Cfg}).
 
--spec del_bucket(limiter_id(), limiter_type()) -> ok.
-del_bucket(Id, Type) ->
-    ?CALL(Type, {del_bucket, Id}).
+-spec del_bucket(limiter_type() | pid(), limiter_id()) -> ok.
+del_bucket(TypeOrPid, Id) ->
+    call(TypeOrPid, {del_bucket, Id}).
 
--spec info(limiter_type()) -> state() | {error, _}.
-info(Type) ->
-    ?CALL(Type).
+-spec info(limiter_type() | pid()) -> state() | {error, _}.
+info(TypeOrPid) ->
+    call(TypeOrPid, info).
 
--spec name(limiter_type()) -> atom().
-name(Type) ->
-    erlang:list_to_atom(io_lib:format("~s_~s", [?MODULE, Type])).
-
--spec restart(limiter_type()) -> ok | {error, _}.
-restart(Type) ->
-    ?CALL(Type).
+-spec restart(limiter_type() | pid(), hocons:config()) -> ok | {error, _}.
+restart(TypeOrPid, Cfg) ->
+    call(TypeOrPid, {restart, Cfg}).
 
 -spec update_config(limiter_type(), hocons:config()) -> ok | {error, _}.
 update_config(Type, Config) ->
-    ?CALL(Type, {update_config, Type, Config}).
+    call(Type, {update_config, Type, Config}).
+
+-spec update_config(pid(), limiter_type(), hocons:config()) -> ok | {error, _}.
+update_config(Pid, Type, Config) ->
+    call(Pid, {update_config, Type, Config}).
+
+-spec update_root_rate(pid(), limiter_type(), rate()) -> ok | {error, _}.
+update_root_rate(Pid, Type, Rate) ->
+    call(Pid, {update_root_rate, Type, Rate}).
+
+-spec start_link(atom(), limiter_type(), hocons:config()) -> _.
+start_link(noname, Type, Cfg) ->
+    gen_server:start_link(?MODULE, [Type, Cfg], []).
+
+-spec start_link(limiter_type(), hocons:config()) -> _.
+start_link(Type, Cfg) ->
+    gen_server:start_link({local, name(Type)}, ?MODULE, [Type, Cfg], []).
 
 -spec whereis(limiter_type()) -> pid() | undefined.
 whereis(Type) ->
     erlang:whereis(name(Type)).
 
-%%--------------------------------------------------------------------
-%% @doc
-%% Starts the server
-%% @end
-%%--------------------------------------------------------------------
--spec start_link(limiter_type(), hocons:config()) -> _.
-start_link(Type, Cfg) ->
-    gen_server:start_link({local, name(Type)}, ?MODULE, [Type, Cfg], []).
+-spec name(limiter_type()) -> atom().
+name(Type) ->
+    erlang:list_to_atom(io_lib:format("~s_~s", [?MODULE, Type])).
 
 %%--------------------------------------------------------------------
 %%% gen_server callbacks
 %%--------------------------------------------------------------------
 
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% Initializes the server
-%% @end
-%%--------------------------------------------------------------------
 -spec init(Args :: term()) ->
     {ok, State :: term()}
     | {ok, State :: term(), Timeout :: timeout()}
@@ -203,12 +170,6 @@ init([Type, Cfg]) ->
     oscillate(Perido),
     {ok, State}.
 
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% Handling call messages
-%% @end
-%%--------------------------------------------------------------------
 -spec handle_call(Request :: term(), From :: {pid(), term()}, State :: term()) ->
     {reply, Reply :: term(), NewState :: term()}
     | {reply, Reply :: term(), NewState :: term(), Timeout :: timeout()}
@@ -220,11 +181,20 @@ init([Type, Cfg]) ->
     | {stop, Reason :: term(), NewState :: term()}.
 handle_call(info, _From, State) ->
     {reply, State, State};
-handle_call(restart, _From, #{type := Type}) ->
-    NewState = init_tree(Type),
+handle_call({restart, Cfg}, _From, #{type := Type}) ->
+    %% XXX: why remove all buckets?
+    NewState = init_tree(Type, Cfg),
     {reply, ok, NewState};
 handle_call({update_config, Type, Config}, _From, #{type := Type}) ->
+    %% XXX: why remove all buckets?
     NewState = init_tree(Type, Config),
+    {reply, ok, NewState};
+handle_call(
+    {update_root_rate, Type, Rate},
+    _From,
+    State = #{type := Type, root := Root}
+) ->
+    NewState = State#{root := Root#{rate := Rate}},
     {reply, ok, NewState};
 handle_call({add_bucket, Id, Cfg}, _From, State) ->
     NewState = do_add_bucket(Id, Cfg, State),
@@ -236,12 +206,6 @@ handle_call(Req, _From, State) ->
     ?SLOG(error, #{msg => "unexpected_call", call => Req}),
     {reply, ignored, State}.
 
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% Handling cast messages
-%% @end
-%%--------------------------------------------------------------------
 -spec handle_cast(Request :: term(), State :: term()) ->
     {noreply, NewState :: term()}
     | {noreply, NewState :: term(), Timeout :: timeout()}
@@ -251,12 +215,6 @@ handle_cast(Req, State) ->
     ?SLOG(error, #{msg => "unexpected_cast", cast => Req}),
     {noreply, State}.
 
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% Handling all non call/cast messages
-%% @end
-%%--------------------------------------------------------------------
 -spec handle_info(Info :: timeout() | term(), State :: term()) ->
     {noreply, NewState :: term()}
     | {noreply, NewState :: term(), Timeout :: timeout()}
@@ -268,15 +226,6 @@ handle_info(Info, State) ->
     ?SLOG(error, #{msg => "unexpected_info", info => Info}),
     {noreply, State}.
 
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% This function is called by a gen_server when it is about to
-%% terminate. It should be the opposite of Module:init/1 and do any
-%% necessary cleaning up. When it returns, the gen_server terminates
-%% with Reason. The return value is ignored.
-%% @end
-%%--------------------------------------------------------------------
 -spec terminate(
     Reason :: normal | shutdown | {shutdown, term()} | term(),
     State :: term()
@@ -284,12 +233,6 @@ handle_info(Info, State) ->
 terminate(_Reason, _State) ->
     ok.
 
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% Convert process state when code is changed
-%% @end
-%%--------------------------------------------------------------------
 -spec code_change(
     OldVsn :: term() | {down, term()},
     State :: term(),
@@ -300,14 +243,6 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
-%%--------------------------------------------------------------------
-%% @private
-%% @doc
-%% This function is called for changing the form and appearance
-%% of gen_server status when it is returned from sys:get_status/1,2
-%% or when it appears in termination error logs.
-%% @end
-%%--------------------------------------------------------------------
 -spec format_status(
     Opt :: normal | terminate,
     Status :: list()
@@ -470,12 +405,8 @@ dispatch_burst_to_buckets([Bucket | T], InFlow, Alloced, Buckets) ->
 dispatch_burst_to_buckets([], _, Alloced, Buckets) ->
     {Alloced, Buckets}.
 
--spec init_tree(emqx_limiter_schema:limiter_type()) -> state().
-init_tree(Type) when is_atom(Type) ->
-    Cfg = emqx:get_config([limiter, Type]),
-    init_tree(Type, Cfg).
-
-init_tree(Type, Cfg) ->
+-spec init_tree(emqx_limiter_schema:limiter_type(), hocons:config()) -> state().
+init_tree(Type, Cfg) when is_atom(Type) ->
     #{
         type => Type,
         root => make_root(Cfg),
@@ -558,30 +489,13 @@ get_initial_val(
             0
     end.
 
--spec call(limiter_type(), any()) -> {error, _} | _.
-call(Type, Msg) ->
+-spec call(limiter_type() | pid(), any()) -> {error, _} | _.
+call(Type, Msg) when is_atom(Type) ->
     case ?MODULE:whereis(Type) of
         undefined ->
             {error, limiter_not_started};
         Pid ->
             gen_server:call(Pid, Msg)
-    end.
-
-find_limiter_cfg(Type, #{rate := _} = Cfg) ->
-    {Cfg, find_client_cfg(Type, maps:get(client, Cfg, undefined))};
-find_limiter_cfg(Type, Cfg) ->
-    {
-        maps:get(Type, Cfg, undefined),
-        find_client_cfg(Type, emqx_map_lib:deep_get([client, Type], Cfg, undefined))
-    }.
-
-find_client_cfg(Type, BucketCfg) ->
-    NodeCfg = emqx:get_config([limiter, client, Type], undefined),
-    merge_client_cfg(NodeCfg, BucketCfg).
-
-merge_client_cfg(undefined, BucketCfg) ->
-    BucketCfg;
-merge_client_cfg(NodeCfg, undefined) ->
-    NodeCfg;
-merge_client_cfg(NodeCfg, BucketCfg) ->
-    maps:merge(NodeCfg, BucketCfg).
+    end;
+call(Pid, Msg) ->
+    gen_server:call(Pid, Msg).

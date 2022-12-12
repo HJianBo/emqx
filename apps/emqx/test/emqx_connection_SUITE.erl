@@ -723,9 +723,9 @@ bucket_cfg() ->
 
 add_bucket() ->
     Cfg = bucket_cfg(),
-    emqx_limiter_server:add_bucket(?LIMITER_ID, bytes_in, Cfg),
-    emqx_limiter_server:add_bucket(?LIMITER_ID, message_in, Cfg).
+    emqx_limiter_server:add_bucket(bytes_in, ?LIMITER_ID, Cfg),
+    emqx_limiter_server:add_bucket(message_in, ?LIMITER_ID, Cfg).
 
 del_bucket() ->
-    emqx_limiter_server:del_bucket(?LIMITER_ID, bytes_in),
-    emqx_limiter_server:del_bucket(?LIMITER_ID, message_in).
+    emqx_limiter_server:del_bucket(bytes_in, ?LIMITER_ID),
+    emqx_limiter_server:del_bucket(message_in, ?LIMITER_ID).

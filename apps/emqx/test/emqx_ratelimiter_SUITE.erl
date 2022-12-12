@@ -159,8 +159,7 @@ t_divisible(_) ->
         ?assertMatch(
             {partial, 400,
                 #{
-                    continuation := _,
-                    diff := 400,
+                    waiting_local_bucket := 400,
                     start := _,
                     need := 1000
                 },
@@ -188,8 +187,9 @@ t_low_watermark(_) ->
         ?assertMatch(
             {pause, _,
                 #{
-                    continuation := undefined,
-                    diff := 0
+                    need := 101,
+                    min_left := 399,
+                    consume_array := []
                 },
                 _},
             Result2
@@ -703,7 +703,7 @@ with_config(Path, Modifier, Buckets, Case) ->
     Cfg = emqx_config:get(Path),
     NewCfg = Modifier(Cfg),
     emqx_config:put(Path, NewCfg),
-    emqx_limiter_server:restart(message_routing),
+    emqx_limiter_manager:restart_server(message_routing),
     timer:sleep(500),
     BucketCfg = make_limiter_cfg(),
     lists:foreach(
@@ -726,7 +726,7 @@ with_config(Path, Modifier, Buckets, Case) ->
         Buckets
     ),
     emqx_config:put(Path, Cfg),
-    emqx_limiter_server:restart(message_routing),
+    emqx_limiter_manager:restart_server(message_routing),
     DelayReturn().
 
 delay_return(Case) ->
@@ -744,7 +744,7 @@ connect(Cfg) ->
     connect(?MODULE, Cfg).
 
 connect(Name, Cfg) ->
-    {ok, Limiter} = emqx_limiter_server:connect(Name, message_routing, Cfg),
+    {ok, Limiter} = emqx_htb_limiter:connect(Name, message_routing, Cfg),
     Limiter.
 
 make_limiter_cfg() ->
@@ -764,13 +764,13 @@ add_bucket(Cfg) ->
     add_bucket(?MODULE, Cfg).
 
 add_bucket(Name, Cfg) ->
-    emqx_limiter_server:add_bucket(Name, message_routing, Cfg).
+    emqx_limiter_server:add_bucket(message_routing, Name, Cfg).
 
 del_bucket() ->
     del_bucket(?MODULE).
 
 del_bucket(Name) ->
-    emqx_limiter_server:del_bucket(Name, message_routing).
+    emqx_limiter_server:del_bucket(message_routing, Name).
 
 check_average_rate(Counter, Second, Rate) ->
     Cost = counters:get(Counter, 1),

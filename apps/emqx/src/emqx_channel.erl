@@ -194,6 +194,8 @@ info(zone, #channel{clientinfo = ClientInfo}) ->
     maps:get(zone, ClientInfo);
 info(listener, #channel{clientinfo = ClientInfo}) ->
     maps:get(listener, ClientInfo);
+info(tenant_id, #channel{clientinfo = ClientInfo}) ->
+    maps:get(tenant_id, ClientInfo, undefined);
 info(clientid, #channel{clientinfo = ClientInfo}) ->
     maps:get(clientid, ClientInfo, undefined);
 info(username, #channel{clientinfo = ClientInfo}) ->
@@ -1102,7 +1104,7 @@ handle_out(Type, Data, Channel) ->
 %%--------------------------------------------------------------------
 
 return_connack(AckPacket, Channel) ->
-    Replies = [{event, connected}, {connack, AckPacket}],
+    Replies = [{event, connected}, {event, update_limiter}, {connack, AckPacket}],
     case maybe_resume_session(Channel) of
         ignore ->
             {ok, Replies, Channel};
@@ -1719,9 +1721,9 @@ check_banned(_ConnPkt, #channel{clientinfo = ClientInfo}) ->
 
 check_tenant_policy(_ConnPkt, #channel{clientinfo = ClientInfo}) ->
     %% XXX: check tenant quota, limit, etc.
-    case emqx_hooks:run_fold('tenant.connecting_check', [ClientInfo], ok) of
-        ok -> ok;
-        {error, Reason} -> {error, Reason}
+    case emqx_hooks:run_fold('quota.connections', [acquire, ClientInfo], allow) of
+        allow -> ok;
+        deny -> {error, ?RC_QUOTA_EXCEEDED}
     end.
 
 %%--------------------------------------------------------------------

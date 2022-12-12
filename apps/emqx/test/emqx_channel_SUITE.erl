@@ -1252,10 +1252,10 @@ bucket_cfg() ->
     #{rate => 10, initial => 0, capacity => 10}.
 
 add_bucket() ->
-    emqx_limiter_server:add_bucket(?MODULE, message_routing, bucket_cfg()).
+    emqx_limiter_server:add_bucket(message_routing, ?MODULE, bucket_cfg()).
 
 del_bucket() ->
-    emqx_limiter_server:del_bucket(?MODULE, message_routing).
+    emqx_limiter_server:del_bucket(message_routing, ?MODULE).
 
 v4(Channel) ->
     ConnInfo = emqx_channel:info(conninfo, Channel),

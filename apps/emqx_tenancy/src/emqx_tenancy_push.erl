@@ -17,6 +17,7 @@
 -module(emqx_tenancy_push).
 
 -include("emqx_tenancy.hrl").
+-include_lib("stdlib/include/ms_transform.hrl").
 
 -behaviour(gen_server).
 
@@ -79,7 +80,7 @@ next_interval() ->
     {NextTime div 1000, Remaining}.
 
 sample(Time) ->
-    Spec = [{#tenant{status = enabled, id = '$1', _ = '_'}, [], ['$1']}],
+    Spec = ets:fun2ms(fun(#tenant{status = enabled, id = Id}) -> Id end),
     case ets:select(?TENANCY, Spec, ?LIMIT) of
         '$end_of_table' -> ok;
         {Tenants, Continuation} -> sample(Time, Tenants, Continuation)

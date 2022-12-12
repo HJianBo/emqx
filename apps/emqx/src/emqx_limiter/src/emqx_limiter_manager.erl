@@ -14,6 +14,7 @@
 %% limitations under the License.
 %%--------------------------------------------------------------------
 
+%% @doc Manange all limiter's bucket created by emqx core or other apps
 -module(emqx_limiter_manager).
 
 -behaviour(gen_server).
@@ -76,7 +77,8 @@ start_server(Type, Cfg) ->
 
 -spec restart_server(limiter_type()) -> _.
 restart_server(Type) ->
-    emqx_limiter_server:restart(Type).
+    Cfg = emqx:get_config([limiter, Type]),
+    emqx_limiter_server:restart(Type, Cfg).
 
 -spec stop_server(limiter_type()) -> _.
 stop_server(Type) ->
@@ -104,7 +106,7 @@ insert_bucket(Id, Type, Bucket) ->
     ).
 
 -spec delete_bucket(limiter_id(), limiter_type()) -> true.
-delete_bucket(Type, Id) ->
+delete_bucket(Id, Type) ->
     ets:delete(?TAB, ?UID(Id, Type)).
 
 post_config_update([limiter, Type], _Config, NewConf, _OldConf, _AppEnvs) ->

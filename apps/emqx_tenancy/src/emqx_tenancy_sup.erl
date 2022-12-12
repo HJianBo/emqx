@@ -31,7 +31,7 @@ init([]) ->
     SupFlags = #{
         strategy => one_for_one,
         intensity => 10,
-        period => 5
+        period => 60
     },
     ChildSpecs = [
         #{
@@ -57,6 +57,20 @@ init([]) ->
             shutdown => 1000,
             type => worker,
             modules => [emqx_tenancy_metric]
+        },
+        #{
+            id => emqx_tenancy_limiter_sup,
+            start => {emqx_tenancy_limiter_sup, start_link, []},
+            restart => permanent,
+            shutdown => 5000,
+            type => supervisor
+        },
+        #{
+            id => emqx_tenancy_quota,
+            start => {emqx_tenancy_quota, start_link, []},
+            restart => permanent,
+            shutdown => 5000,
+            type => worker
         }
     ],
     {ok, {SupFlags, ChildSpecs}}.

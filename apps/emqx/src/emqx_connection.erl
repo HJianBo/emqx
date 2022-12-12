@@ -601,6 +601,14 @@ handle_msg({event, disconnected}, State = #state{channel = Channel}) ->
     emqx_cm:set_chan_info(ClientId, info(State)),
     emqx_cm:connection_closed(ClientId),
     {ok, State};
+handle_msg({event, update_limiter}, State = #state{channel = Channel, limiter = Limiter}) ->
+    case emqx_channel:info(tenant_id, Channel) of
+        ?NO_TENANT ->
+            ok;
+        TenantId ->
+            NLimiter = emqx_limiter_container:upgrade_with_tenant(TenantId, Limiter),
+            {ok, State#state{limiter = NLimiter}}
+    end;
 handle_msg({event, _Other}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:set_chan_info(ClientId, info(State)),

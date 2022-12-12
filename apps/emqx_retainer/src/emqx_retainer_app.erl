@@ -38,8 +38,10 @@ stop(_State) ->
 init_bucket() ->
     #{flow_control := FlowControl} = emqx:get_config([retainer]),
     emqx_limiter_server:add_bucket(
-        ?APP, internal, maps:get(batch_deliver_limiter, FlowControl, undefined)
+        internal,
+        ?APP,
+        maps:get(batch_deliver_limiter, FlowControl, undefined)
     ).
 
 delete_bucket() ->
-    emqx_limiter_server:del_bucket(?APP, internal).
+    emqx_limiter_server:del_bucket(internal, ?APP).

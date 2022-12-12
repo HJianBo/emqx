@@ -439,13 +439,20 @@ users(post, Req = #{body := Body}) when is_list(Body) ->
     Tenant = tenant(Req),
     case ensure_all_not_exists(Tenant, <<"username">>, username, Body) of
         [] ->
-            lists:foreach(
-                fun(#{<<"username">> := Username, <<"rules">> := Rules}) ->
-                    emqx_authz_mnesia:store_rules({username, Tenant, Username}, format_rules(Rules))
-                end,
-                Body
-            ),
-            {204};
+            with_acquire_quota(
+                Tenant,
+                count_rules_number(Body),
+                fun() ->
+                    lists:foreach(
+                        fun(#{<<"username">> := Username, <<"rules">> := Rules}) ->
+                            emqx_authz_mnesia:store_rules(
+                                {username, Tenant, Username}, format_rules(Rules)
+                            )
+                        end,
+                        Body
+                    )
+                end
+            );
         Exists ->
             {409, #{
                 code => <<"ALREADY_EXISTS">>,
@@ -477,13 +484,20 @@ clients(post, Req = #{body := Body}) when is_list(Body) ->
     Tenant = tenant(Req),
     case ensure_all_not_exists(Tenant, <<"clientid">>, clientid, Body) of
         [] ->
-            lists:foreach(
-                fun(#{<<"clientid">> := ClientID, <<"rules">> := Rules}) ->
-                    emqx_authz_mnesia:store_rules({clientid, Tenant, ClientID}, format_rules(Rules))
-                end,
-                Body
-            ),
-            {204};
+            with_acquire_quota(
+                Tenant,
+                count_rules_number(Body),
+                fun() ->
+                    lists:foreach(
+                        fun(#{<<"clientid">> := ClientID, <<"rules">> := Rules}) ->
+                            emqx_authz_mnesia:store_rules(
+                                {clientid, Tenant, ClientID}, format_rules(Rules)
+                            )
+                        end,
+                        Body
+                    )
+                end
+            );
         Exists ->
             {409, #{
                 code => <<"ALREADY_EXISTS">>,
@@ -517,16 +531,30 @@ user(
     }
 ) ->
     Tenant = tenant(Req),
-    emqx_authz_mnesia:store_rules({username, Tenant, Username}, format_rules(Rules)),
-    {204};
+    UpdateFun = fun() ->
+        emqx_authz_mnesia:store_rules({username, Tenant, Username}, format_rules(Rules))
+    end,
+    case count_new_rules_number({username, Tenant, Username}, Rules) of
+        Diff when Diff =:= 0 ->
+            {204};
+        Diff when Diff < 0 ->
+            with_release_quota(Tenant, Diff, UpdateFun);
+        Diff when Diff > 0 ->
+            with_acquire_quota(Tenant, Diff, UpdateFun)
+    end;
 user(delete, Req = #{bindings := #{username := Username}}) ->
     Tenant = tenant(Req),
     case emqx_authz_mnesia:lookup_rules({username, Tenant, Username}) of
         not_found ->
             {404, #{code => <<"NOT_FOUND">>, message => <<"Username Not Found">>}};
-        {ok, _Rules} ->
-            emqx_authz_mnesia:delete_rules({username, Tenant, Username}),
-            {204}
+        {ok, Rules} ->
+            with_release_quota(
+                Tenant,
+                length(Rules),
+                fun() ->
+                    emqx_authz_mnesia:delete_rules({username, Tenant, Username})
+                end
+            )
     end.
 
 client(get, Req = #{bindings := #{clientid := ClientID}}) ->
@@ -555,16 +583,30 @@ client(
     }
 ) ->
     Tenant = tenant(Req),
-    emqx_authz_mnesia:store_rules({clientid, Tenant, ClientID}, format_rules(Rules)),
-    {204};
+    UpdateFun = fun() ->
+        emqx_authz_mnesia:store_rules({clientid, Tenant, ClientID}, format_rules(Rules))
+    end,
+    case count_new_rules_number({clientid, Tenant, ClientID}, Rules) of
+        Diff when Diff =:= 0 ->
+            {204};
+        Diff when Diff < 0 ->
+            with_release_quota(Tenant, Diff, UpdateFun);
+        Diff when Diff > 0 ->
+            with_acquire_quota(Tenant, Diff, UpdateFun)
+    end;
 client(delete, Req = #{bindings := #{clientid := ClientID}}) ->
     Tenant = tenant(Req),
     case emqx_authz_mnesia:lookup_rules({clientid, Tenant, ClientID}) of
         not_found ->
             {404, #{code => <<"NOT_FOUND">>, message => <<"ClientID Not Found">>}};
-        {ok, _Rules} ->
-            emqx_authz_mnesia:delete_rules({clientid, Tenant, ClientID}),
-            {204}
+        {ok, Rules} ->
+            with_release_quota(
+                Tenant,
+                length(Rules),
+                fun() ->
+                    emqx_authz_mnesia:delete_rules({clientid, Tenant, ClientID})
+                end
+            )
     end.
 
 all(get, Req) ->
@@ -584,8 +626,12 @@ all(get, Req) ->
     }};
 all(post, Req = #{body := #{<<"rules">> := Rules}}) ->
     Tenant = tenant(Req),
-    emqx_authz_mnesia:store_rules({all, Tenant}, format_rules(Rules)),
-    {204}.
+    UpdateFun = fun() -> emqx_authz_mnesia:store_rules({all, Tenant}, format_rules(Rules)) end,
+    with_acquire_quota(
+        Tenant,
+        count_new_rules_number({all, Tenant}, Rules),
+        UpdateFun
+    ).
 
 purge(delete, _) ->
     case emqx_authz_api_sources:get_raw_source(<<"built_in_database">>) of
@@ -604,6 +650,35 @@ purge(delete, _) ->
                 message => <<"'built_in_database' type source is not found.">>
             }}
     end.
+
+%%--------------------------------------------------------------------
+%% Quotas
+
+count_rules_number(Users) when is_list(Users) ->
+    lists:sum(lists:map(fun(#{<<"rules">> := Rules}) -> length(Rules) end, Users)).
+
+with_acquire_quota(Tenant, Count, Fun) ->
+    case emqx_hooks:run_fold('quota.authz_rules', [{acquire, Count}, Tenant], allow) of
+        allow ->
+            %% assert
+            ok = Fun(),
+            {204};
+        deny ->
+            {409, #{
+                code => <<"QUOTA_EXCEEDED">>,
+                message => binfmt("Quota Exceeded")
+            }}
+    end.
+
+with_release_quota(Tenant, Count, Fun) ->
+    %% assert
+    ok = Fun(),
+    _ = emqx_hooks:run_fold('quota.authz_rules', [{release, Count}, Tenant], allow),
+    {204}.
+
+count_new_rules_number(Key, NewRules) ->
+    {ok, OldRules} = emqx_authz_mnesia:lookup_rules(Key),
+    length(NewRules) - length(OldRules).
 
 %%--------------------------------------------------------------------
 %% Query Functions
@@ -796,4 +871,5 @@ binjoin([H | T], Acc) ->
 binjoin([], Acc) ->
     Acc.
 
+binfmt(Fmt) -> binfmt(Fmt, []).
 binfmt(Fmt, Args) -> iolist_to_binary(io_lib:format(Fmt, Args)).
