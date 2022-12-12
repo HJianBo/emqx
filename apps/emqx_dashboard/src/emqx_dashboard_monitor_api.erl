@@ -63,6 +63,7 @@ schema("/monitor_current") ->
     #{
         'operationId' => monitor_current,
         get => #{
+            parameters => [hoconsc:ref(emqx_dashboard_swagger, tenant_id)],
             tags => [<<"Metrics">>],
             desc => <<"Current status. Gauge and rate.">>,
             responses => #{
@@ -76,7 +77,10 @@ schema("/monitor_current/nodes/:node") ->
         get => #{
             tags => [<<"Metrics">>],
             desc => <<"Node current status. Gauge and rate.">>,
-            parameters => [parameter_node()],
+            parameters => [
+                parameter_node(),
+                hoconsc:ref(emqx_dashboard_swagger, tenant_id)
+            ],
             responses => #{
                 200 => hoconsc:mk(hoconsc:ref(sampler_current), #{}),
                 400 => emqx_dashboard_swagger:error_codes(['BAD_RPC'], <<"Bad RPC">>)
@@ -130,18 +134,24 @@ monitor(get, #{query_string := QS, bindings := Bindings}) ->
             {200, Samplers}
     end.
 
-monitor_current(get, #{bindings := Bindings}) ->
+monitor_current(get, #{bindings := Bindings} = Req) ->
     RawNode = maps:get(node, Bindings, all),
     case emqx_misc:safe_to_existing_atom(RawNode, utf8) of
         {ok, NodeOrCluster} ->
-            case emqx_dashboard_monitor:current_rate(NodeOrCluster) of
-                {ok, CurrentRate} ->
-                    {200, CurrentRate};
-                {badrpc, {Node, Reason}} ->
-                    Message = list_to_binary(
-                        io_lib:format("Bad node ~p, rpc failed ~p", [Node, Reason])
-                    ),
-                    {400, 'BAD_RPC', Message}
+            case emqx_dashboard_utils:tenant(Req, undefined) of
+                undefined ->
+                    case emqx_dashboard_monitor:current_rate(NodeOrCluster) of
+                        {ok, CurrentRate} ->
+                            {200, CurrentRate};
+                        {badrpc, {Node, Reason}} ->
+                            Message = list_to_binary(
+                                io_lib:format("Bad node ~p, rpc failed ~p", [Node, Reason])
+                            ),
+                            {400, 'BAD_RPC', Message}
+                    end;
+                TenantId ->
+                    {ok, CurrentRate} = emqx_tenancy_monitor:current_rate(NodeOrCluster, TenantId),
+                    {200, CurrentRate}
             end;
         {error, _} ->
             Message = list_to_binary(io_lib:format("Bad node ~p", [RawNode])),

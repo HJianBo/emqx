@@ -35,12 +35,18 @@
     | {continue, binary(), map()}
     | {error, term()}.
 authenticate(Credential) ->
-    case run_hooks('client.authenticate', [Credential], {ok, #{is_superuser => false}}) of
-        ok ->
-            {ok, #{is_superuser => false}};
-        Other ->
-            Other
-    end.
+    Result =
+        case run_hooks('client.authenticate', [Credential], {ok, #{is_superuser => false}}) of
+            ok ->
+                {ok, #{is_superuser => false}};
+            Other ->
+                Other
+        end,
+    emqx:run_hook(
+        'client.check_authn_complete',
+        [Credential, Result]
+    ),
+    Result.
 
 %% @doc Check Authorization
 -spec authorize(emqx_types:clientinfo(), emqx_types:pubsub(), emqx_types:topic()) ->

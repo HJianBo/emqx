@@ -704,7 +704,9 @@ handle_timeout(
 ) ->
     emqx_congestion:maybe_alarm_conn_congestion(Socket, Transport, Channel),
     ClientId = emqx_channel:info(clientid, Channel),
-    emqx_cm:set_chan_stats(ClientId, stats(State)),
+    Stats = stats(State),
+    emqx_cm:set_chan_stats(ClientId, Stats),
+    emqx_tenancy_stats:update_stats(ClientId, Stats),
     {ok, State#state{stats_timer = undefined}};
 handle_timeout(
     TRef,

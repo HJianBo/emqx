@@ -23,7 +23,8 @@
     get_counters/1,
     get_counter/1,
     inc_counter/2,
-    reset_counter/1
+    reset_counter/1,
+    set_counter/2
 ]).
 
 -compile(
@@ -58,3 +59,6 @@ reset_counter(Key) ->
         undefined -> 0;
         Cnt -> Cnt
     end.
+
+set_counter(Key, Count) ->
+    put(Key, Count).

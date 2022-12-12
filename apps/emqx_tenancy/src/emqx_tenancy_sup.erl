@@ -29,9 +29,34 @@ start_link() ->
 
 init([]) ->
     SupFlags = #{
-        strategy => one_for_all,
-        intensity => 0,
-        period => 1
+        strategy => one_for_one,
+        intensity => 10,
+        period => 5
     },
-    ChildSpecs = [],
+    ChildSpecs = [
+        #{
+            id => emqx_tenancy_stats,
+            start => {emqx_tenancy_stats, start_link, []},
+            restart => permanent,
+            shutdown => 5000,
+            type => worker,
+            modules => [emqx_tenancy_stats]
+        },
+        #{
+            id => emqx_tenancy_monitor,
+            start => {emqx_tenancy_monitor, start_link, []},
+            restart => permanent,
+            shutdown => 1000,
+            type => worker,
+            modules => [emqx_tenancy_monitor]
+        },
+        #{
+            id => emqx_tenancy_push,
+            start => {emqx_tenancy_push, start_link, []},
+            restart => permanent,
+            shutdown => 1000,
+            type => worker,
+            modules => [emqx_tenancy_metric]
+        }
+    ],
     {ok, {SupFlags, ChildSpecs}}.

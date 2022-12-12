@@ -18,6 +18,7 @@
 -define(EMQX_TENANCY_HRL, true).
 
 -include_lib("emqx/include/emqx.hrl").
+-include_lib("emqx/include/logger.hrl").
 
 -type tenant_id() :: binary().
 
