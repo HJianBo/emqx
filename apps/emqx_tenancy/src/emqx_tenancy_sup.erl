@@ -57,6 +57,7 @@ init([]) ->
             shutdown => 1000,
             type => worker,
             modules => [emqx_tenancy_metric]
+        },
         #{
             id => emqx_tenancy_limiter_sup,
             start => {emqx_tenancy_limiter_sup, start_link, []},
