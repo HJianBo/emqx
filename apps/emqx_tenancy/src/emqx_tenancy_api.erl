@@ -186,7 +186,7 @@ fields(tenant_configs) ->
     ];
 fields(quotas) ->
     [
-        {max_connections, ?HOCON(integer(), #{desc => <<"Max connections">>, default => 1000})},
+        {max_sessions, ?HOCON(integer(), #{desc => <<"Max sessions">>, default => 1000})},
         {max_authn_users, ?HOCON(integer(), #{desc => <<"Max authn users">>, default => 2000})},
         {max_authz_rules, ?HOCON(integer(), #{desc => <<"Max authz users">>, default => 2000})}
         %% TODO: 2.0

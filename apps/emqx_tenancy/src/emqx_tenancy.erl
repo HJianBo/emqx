@@ -193,7 +193,7 @@ to_tenant(Tenant) ->
 default_configs() ->
     #{
         <<"quotas">> => #{
-            <<"max_connections">> => 1000,
+            <<"max_sessions">> => 1000,
             <<"max_authn_users">> => 2000,
             <<"max_authz_rules">> => 2000
         },
@@ -213,7 +213,7 @@ with_limiter_configs(Config0) when is_map(Config0) ->
 
 with_quota_config(Config0) when is_map(Config0) ->
     Keys = [
-        <<"max_connections">>,
+        <<"max_sessions">>,
         <<"max_authn_users">>,
         <<"max_authz_rules">>
     ],

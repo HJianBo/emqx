@@ -46,7 +46,7 @@
 
 %% hooks callback
 -export([
-    on_quota_connections/3,
+    on_quota_sessions/3,
     on_quota_authn_users/3,
     on_quota_authz_rules/3
 ]).
@@ -64,7 +64,7 @@
 
 -record(usage, {
     id :: tenant_id(),
-    connections :: usage_counter(),
+    sessions :: usage_counter(),
     authn_users :: usage_counter(),
     authz_rules :: usage_counter(),
     subs :: usage_counter(),
@@ -77,7 +77,7 @@
 -type usage() :: #usage{}.
 
 -type usage_info() :: #{
-    connections := usage_counter(),
+    sessions := usage_counter(),
     authn_users := usage_counter(),
     authz_rules := usage_counter(),
     subs := usage_counter(),
@@ -100,18 +100,18 @@ start_link() ->
 %% load/unload
 
 %% @doc Load tenancy limiter
-%% It's only works for new connections
+%% It's only works for new sessions
 -spec load() -> ok.
 load() ->
-    emqx_hooks:put('quota.connections', {?MODULE, on_quota_connections, []}, 0),
+    emqx_hooks:put('quota.sessions', {?MODULE, on_quota_sessions, []}, 0),
     emqx_hooks:put('quota.authn_users', {?MODULE, on_quota_authn_users, []}, 0),
     emqx_hooks:put('quota.authz_rules', {?MODULE, on_quota_authz_rules, []}, 0).
 
 %% @doc Unload tenanct limiter
-%% It's only works for new connections
+%% It's only works for new sessions
 -spec unload() -> ok.
 unload() ->
-    emqx_hooks:del('quota.connections', {?MODULE, on_quota_connections, []}),
+    emqx_hooks:del('quota.sessions', {?MODULE, on_quota_sessions, []}),
     emqx_hooks:del('quota.authn_users', {?MODULE, on_quota_authn_users, []}),
     emqx_hooks:del('quota.authz_rules', {?MODULE, on_quota_authz_rules, []}).
 
@@ -208,11 +208,11 @@ cast(Msg) ->
 
 -type permision() :: {stop, allow | deny} | ok.
 
--spec on_quota_connections(quota_action(), emqx_types:clientinfo(), term()) -> permision().
-on_quota_connections(_Action, #{tenant_id := ?NO_TENANT}, _LastPermision) ->
+-spec on_quota_sessions(quota_action(), emqx_types:clientinfo(), term()) -> permision().
+on_quota_sessions(_Action, #{tenant_id := ?NO_TENANT}, _LastPermision) ->
     {stop, allow};
-on_quota_connections(Action, _ClientInfo = #{tenant_id := TenantId}, _LastPermision) ->
-    exec_quota_action(Action, [TenantId, connections]).
+on_quota_sessions(Action, _ClientInfo = #{tenant_id := TenantId}, _LastPermision) ->
+    exec_quota_action(Action, [TenantId, sessions]).
 
 -spec on_quota_authn_users(quota_action(), tenant_id(), term()) -> permision().
 on_quota_authn_users(_Action, ?NO_TENANT, _LastPermision) ->
@@ -248,7 +248,7 @@ release(N, TenantId, Resource) ->
 
 position(Resource) ->
     P = #{
-        connections => #usage.connections,
+        sessions => #usage.sessions,
         authn_users => #usage.authn_users,
         authz_rules => #usage.authz_rules,
         subs => #usage.subs,
@@ -326,7 +326,7 @@ handle_cast(
 ) ->
     PMon1 =
         case Resource of
-            connections ->
+            sessions ->
                 emqx_pmon:monitor(Taker, {TenantId, Resource}, PMon);
             _ ->
                 PMon
@@ -480,14 +480,14 @@ update_usage_record(New, Old) when is_record(New, usage), is_record(Old, usage) 
 config_to_usage(
     TenantId,
     #{
-        max_connections := MaxConns,
+        max_sessions := MaxSess,
         max_authn_users := MaxAuthN,
         max_authz_rules := MaxAuthZ
     }
 ) ->
     #usage{
         id = TenantId,
-        connections = counter(MaxConns),
+        sessions = counter(MaxSess),
         authn_users = counter(MaxAuthN),
         authz_rules = counter(MaxAuthZ),
         subs = counter(infinity),
@@ -498,7 +498,7 @@ config_to_usage(
     }.
 
 usage_to_info(#usage{
-    connections = Conns,
+    sessions = Sess,
     authn_users = AuthN,
     authz_rules = AuthZ,
     subs = Subs,
@@ -508,7 +508,7 @@ usage_to_info(#usage{
     shared_subs = SharedSub
 }) ->
     #{
-        connections => Conns,
+        sessions => Sess,
         authn_users => AuthN,
         authz_rules => AuthZ,
         subs => Subs,
@@ -521,8 +521,8 @@ usage_to_info(#usage{
 counter(Max) ->
     #{max => Max, used => 0}.
 
-incr(connections, N, Usage = #usage{connections = C = #{used := Used}}) ->
-    Usage#usage{connections = C#{used := Used + N}};
+incr(sessions, N, Usage = #usage{sessions = C = #{used := Used}}) ->
+    Usage#usage{sessions = C#{used := Used + N}};
 incr(authn_users, N, Usage = #usage{authn_users = C = #{used := Used}}) ->
     Usage#usage{authn_users = C#{used := Used + N}};
 incr(authz_rules, N, Usage = #usage{authz_rules = C = #{used := Used}}) ->
