@@ -141,11 +141,6 @@ roots(high) ->
             sc(
                 ref(?EMQX_AUTHORIZATION_CONFIG_ROOT_NAME),
                 #{}
-            )},
-        {"tenant",
-            sc(
-                ref("tenant"),
-                #{desc => ?DESC(tenant)}
             )}
     ];
 roots(medium) ->
@@ -382,30 +377,6 @@ fields("tenant") ->
                 #{
                     default => peersni,
                     desc => ?DESC(tenant_id_from)
-                }
-            )},
-        {"allow_non_tenant_access",
-            sc(
-                boolean(),
-                #{
-                    default => true,
-                    desc => ?DESC(allow_non_tenant_access)
-                }
-            )},
-        {"topic_prefix",
-            sc(
-                binary(),
-                #{
-                    default => <<"$tenants/${tenant_id}/">>,
-                    desc => ?DESC(tenant_topic_prefix)
-                }
-            )},
-        {"sample_interval",
-            sc(
-                duration_ms(),
-                #{
-                    default => "60s",
-                    desc => ?DESC(tenant_sample_interval)
                 }
             )}
     ];
@@ -1721,6 +1692,11 @@ base_listener(Bind) ->
                     desc => ?DESC(base_listener_enable_authn),
                     default => true
                 }
+            )},
+        {"tenant",
+            sc(
+                ref("tenant"),
+                #{desc => ?DESC(tenant)}
             )}
     ].
 

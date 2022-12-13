@@ -67,7 +67,6 @@ init_per_suite(Config) ->
     emqx_common_test_helpers:start_apps([]),
     %% load the testing confs
     emqx_common_test_helpers:load_config(emqx_schema, listener_confs()),
-    emqx_common_test_helpers:load_config(emqx_schema, tenant_confs()),
     %% restart listeners
     emqx_listeners:restart(),
     Config.
@@ -83,7 +82,8 @@ end_per_suite(_) ->
 init_per_group(GroupName, Config) ->
     [
         {group, GroupName},
-        {client_conn_fn, client_conn_fn(GroupName)}
+        {client_conn_fn, client_conn_fn(GroupName)},
+        {internal_client_conn_fn, client_conn_fn_gen(connect, ?DEFAULT_OPTS#{port => 11883})}
         | Config
     ].
 
@@ -131,14 +131,22 @@ listener_confs() ->
     <<
         ""
         "\n"
+        "listeners.tcp.internal {\n"
+        "  bind = \"0.0.0.0:11883\"\n"
+        "  tenant.tenant_id_from = none\n"
+        "  max_connections = 1024000\n"
+        "}\n"
+        "\n"
         "listeners.tcp.default {\n"
         "  bind = \"0.0.0.0:1883\"\n"
+        "  tenant.tenant_id_from = peersni\n"
         "  proxy_protocol = true\n"
         "  max_connections = 1024000\n"
         "}\n"
         "\n"
         "listeners.ssl.default {\n"
         "  bind = \"0.0.0.0:8883\"\n"
+        "  tenant.tenant_id_from = peersni\n"
         "  max_connections = 512000\n"
         "  ssl_options {\n"
         "    keyfile = \"",
@@ -155,6 +163,7 @@ listener_confs() ->
         "\n"
         "listeners.ws.default {\n"
         "  bind = \"0.0.0.0:8083\"\n"
+        "  tenant.tenant_id_from = peersni\n"
         "  proxy_protocol = true\n"
         "  max_connections = 1024000\n"
         "  websocket.mqtt_path = \"/mqtt\"\n"
@@ -162,6 +171,7 @@ listener_confs() ->
         "\n"
         "listeners.wss.default {\n"
         "  bind = \"0.0.0.0:8084\"\n"
+        "  tenant.tenant_id_from = peersni\n"
         "  max_connections = 512000\n"
         "  websocket.mqtt_path = \"/mqtt\"\n"
         "  ssl_options {\n"
@@ -179,24 +189,13 @@ listener_confs() ->
         ""
     >>.
 
-tenant_confs() ->
-    <<
-        ""
-        "\n"
-        "tenant {\n"
-        "  tenant_id_from = peersni\n"
-        "  allow_non_tenant_access = true\n"
-        "  topic_prefix = \"$tenants/${tenant_id}/\"\n"
-        "}\n"
-        ""
-    >>.
-
 %%--------------------------------------------------------------------
 %% cases
 %%--------------------------------------------------------------------
 
 t_tenant_id_from_peersni(Config) ->
     ClientFn = proplists:get_value(client_conn_fn, Config),
+    InterClientFn = proplists:get_value(internal_client_conn_fn, Config),
     %% allow duplicated clientid access in different tenants
     {ok, C1} = ClientFn(?DEFAULT_CLIENTID, #{
         ssl_opts => [{server_name_indication, ?TENANT_FOO_SNI}]
@@ -204,7 +203,7 @@ t_tenant_id_from_peersni(Config) ->
     {ok, C2} = ClientFn(?DEFAULT_CLIENTID, #{
         ssl_opts => [{server_name_indication, ?TENANT_BAR_SNI}]
     }),
-    {ok, C3} = ClientFn(?DEFAULT_CLIENTID, #{ssl_opts => [{server_name_indication, disable}]}),
+    {ok, C3} = InterClientFn(?DEFAULT_CLIENTID, #{}),
     %% assert tenant_id is prefix of sni
     ?assertMatch(
         #{clientinfo := #{tenant_id := ?TENANT_FOO}},
@@ -224,9 +223,8 @@ t_tenant_id_from_peersni(Config) ->
 
 t_pubsub_topic_prefix(Config) ->
     ClientFn = proplists:get_value(client_conn_fn, Config),
-    {ok, C1} = ClientFn(?DEFAULT_CLIENTID, #{
-        ssl_opts => [{server_name_indication, disable}]
-    }),
+    InterClientFn = proplists:get_value(internal_client_conn_fn, Config),
+    {ok, C1} = InterClientFn(?DEFAULT_CLIENTID, #{}),
     {ok, C2} = ClientFn(?DEFAULT_CLIENTID, #{
         ssl_opts => [{server_name_indication, ?TENANT_FOO_SNI}]
     }),
@@ -287,11 +285,10 @@ t_pubsub_isolation(Config) ->
 t_will_mesages_isolation(Config) ->
     process_flag(trap_exit, true),
     ClientFn = proplists:get_value(client_conn_fn, Config),
+    InterClientFn = proplists:get_value(internal_client_conn_fn, Config),
     WillTopic = <<"will/t">>,
     FullWillTopic = <<"$tenants/tenant_foo/", WillTopic/binary>>,
-    {ok, C1} = ClientFn(?DEFAULT_CLIENTID, #{
-        ssl_opts => [{server_name_indication, disable}]
-    }),
+    {ok, C1} = InterClientFn(?DEFAULT_CLIENTID, #{}),
     {ok, _C2} = ClientFn(?DEFAULT_CLIENTID, #{
         will_topic => WillTopic,
         will_payload => <<"from tenant_foo client1">>,
@@ -344,12 +341,6 @@ t_shared_subs_works_well(Config) ->
 t_not_allowed_undefined_tenant(Config) ->
     process_flag(trap_exit, true),
     ClientFn = proplists:get_value(client_conn_fn, Config),
-    %% allow undefined tenant client
-    emqx_config:put([tenant, allow_non_tenant_access], true),
-    {ok, C1} = ClientFn(?DEFAULT_CLIENTID, #{ssl_opts => [{server_name_indication, disable}]}),
-    ok = emqtt:disconnect(C1),
-    %% deny udenfined tenant client
-    emqx_config:put([tenant, allow_non_tenant_access], false),
     {error, {banned, _}} = ClientFn(?DEFAULT_CLIENTID, #{
         ssl_opts => [{server_name_indication, disable}]
     }),
@@ -358,7 +349,6 @@ t_not_allowed_undefined_tenant(Config) ->
         ssl_opts => [{server_name_indication, ?TENANT_FOO_SNI}]
     }),
     ok = emqtt:disconnect(C2),
-    emqx_config:put([tenant, allow_non_tenant_access], true),
     ok.
 
 %%--------------------------------------------------------------------
@@ -368,10 +358,11 @@ t_not_allowed_undefined_tenant(Config) ->
 prepare_sni_for_meck(Opts) ->
     persistent_term:put(current_client_sni, sni_from_opts(Opts)).
 
-sni_from_opts(#{ssl_opts := SslOpts}) ->
+sni_from_opts(Opts) ->
+    SslOpts = maps:get(ssl_opts, Opts, []),
     case proplists:get_value(server_name_indication, SslOpts) of
-        disable -> undefined;
-        SNI when is_list(SNI) -> list_to_binary(SNI)
+        SNI when is_list(SNI) -> list_to_binary(SNI);
+        _ -> undefined
     end.
 
 meck_recv_ppv2(tcp_ppv2) ->
