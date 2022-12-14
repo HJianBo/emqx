@@ -32,6 +32,8 @@
 
 -define(USAGE_TAB, emqx_tenancy_usage).
 
+-define(DEFAULT_SUBMIT_DELAY, 100).
+-define(DEFAULT_SUBMIT_DIFF, 10).
 -define(BATCH_SIZE, 100000).
 
 %% gen_server callbacks
@@ -120,10 +122,12 @@ unload() ->
 
 -spec create(tenant_id(), quota_config()) -> ok.
 create(TenantId, Config) ->
+    %% FIXME: atomicity?
     multicall(?MODULE, do_create, [TenantId, Config]).
 
 -spec update(tenant_id(), quota_config()) -> ok.
 update(TenantId, Config) ->
+    %% FIXME: atomicity?
     multicall(?MODULE, do_update, [TenantId, Config]).
 
 -spec remove(tenant_id()) -> ok.
@@ -283,9 +287,9 @@ init([]) ->
     ]),
     State = #{
         pmon => emqx_pmon:new(),
-        delayed_submit_ms => 500,
-        delayed_submit_diff => 10,
-        buffer => #{}
+        delayed_submit_ms => ?DEFAULT_SUBMIT_DELAY,
+        delayed_submit_diff => ?DEFAULT_SUBMIT_DIFF,
+        buffer => load_tenants_used()
     },
     {ok, ensure_submit_timer(State)}.
 
@@ -364,6 +368,59 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% Internal funcs
 %%--------------------------------------------------------------------
+
+%%--------------------------------------------------------------------
+%% load
+
+load_tenants_used() ->
+    AuthNUsed = scan_authn_users_table(),
+    AuthZUsed = scan_authz_rules_table(),
+    RetainedUsed = scan_retained_table(),
+    lists:foldl(
+        fun(#tenant{id = Id, configs = Configs}, Acc) ->
+            Usage = config_to_usage(
+                Id,
+                emqx_tenancy:with_quota_config(Configs)
+            ),
+            Usage1 = incr(authn_users, maps:get(Id, AuthNUsed, 0), Usage),
+            Usage2 = incr(authz_rules, maps:get(Id, AuthZUsed, 0), Usage1),
+            Usage3 = incr(retained, maps:get(Id, RetainedUsed, 0), Usage2),
+            ok = trans(fun() -> mnesia:write(?USAGE_TAB, Usage3, write) end),
+            Acc#{Id => {Usage, 0}}
+        end,
+        #{},
+        ets:tab2list(?TENANCY)
+    ).
+
+%% XXX: how to optimize?
+scan_authn_users_table() ->
+    ets:foldl(
+        fun({user_info, {_Group, TenantId, _UserId}, _, _, _}, Acc) ->
+            N = maps:get(TenantId, Acc, 0),
+            Acc#{TenantId => N + 1}
+        end,
+        #{},
+        emqx_authn_mnesia
+    ).
+
+scan_authz_rules_table() ->
+    ets:foldl(
+        fun({emqx_acl, Who, Rules}, Acc) ->
+            Id =
+                case Who of
+                    {_, Id0} -> Id0;
+                    {_, Id0, _} -> Id0
+                end,
+            N = maps:get(Id, Acc, 0),
+            Acc#{Id => N + length(Rules)}
+        end,
+        #{},
+        emqx_acl
+    ).
+
+scan_retained_table() ->
+    %% TODO: 2.0
+    #{}.
 
 %%--------------------------------------------------------------------
 %% submit

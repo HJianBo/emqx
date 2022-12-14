@@ -29,6 +29,9 @@
 -export([delete/1, do_delete/1]).
 -export([format/1]).
 
+%% Internal exports
+-export([with_quota_config/1, with_limiter_configs/1]).
+
 -ifdef(TEST).
 -compile(nowarn_export_all).
 -compile(export_all).
@@ -52,7 +55,6 @@ load_tenants([]) ->
     ok;
 load_tenants([#tenant{id = Id, configs = Quota} | More]) ->
     ok = emqx_tenancy_limiter:do_create(Id, with_limiter_configs(Quota)),
-    ok = emqx_tenancy_quota:do_create(Id, with_quota_config(Quota)),
     load_tenants(More).
 
 -spec create(map()) -> {ok, map()} | {error, any()}.
@@ -182,7 +184,7 @@ to_tenant(Tenant) ->
         <<"status">> := Status,
         <<"desc">> := Desc
     } = Tenant,
-    Configs1 = emqx_maps_lib:deep_merge(default_configs(), Configs),
+    Configs1 = emqx_map_lib:deep_merge(default_configs(), Configs),
     #tenant{
         id = Id,
         configs = Configs1,
