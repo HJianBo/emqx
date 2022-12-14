@@ -375,7 +375,7 @@ fields("tenant") ->
             sc(
                 hoconsc:union([none, peersni]),
                 #{
-                    default => peersni,
+                    default => none,
                     desc => ?DESC(tenant_id_from)
                 }
             )}

@@ -182,7 +182,7 @@ to_tenant(Tenant) ->
         <<"status">> := Status,
         <<"desc">> := Desc
     } = Tenant,
-    Configs1 = maps:merge(default_configs(), Configs),
+    Configs1 = emqx_maps_lib:deep_merge(default_configs(), Configs),
     #tenant{
         id = Id,
         configs = Configs1,
