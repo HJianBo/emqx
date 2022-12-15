@@ -1107,7 +1107,7 @@ handle_out(Type, Data, Channel) ->
 %%--------------------------------------------------------------------
 
 return_connack(AckPacket, Channel) ->
-    Replies = [{event, connected}, {event, update_limiter}, {connack, AckPacket}],
+    Replies = [{event, connected}, {connack, AckPacket}],
     case maybe_resume_session(Channel) of
         ignore ->
             {ok, Replies, Channel};

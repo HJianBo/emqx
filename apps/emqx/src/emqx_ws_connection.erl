@@ -516,10 +516,16 @@ handle_info({connack, ConnAck}, State) ->
 handle_info({close, Reason}, State) ->
     ?TRACE("SOCKET", "socket_force_closed", #{reason => Reason}),
     return(enqueue({close, Reason}, State));
-handle_info({event, connected}, State = #state{channel = Channel}) ->
+handle_info({event, connected}, State = #state{channel = Channel, limiter = Limiter}) ->
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:insert_channel_info(ClientId, info(State), stats(State)),
-    return(State);
+    case emqx_channel:info(tenant_id, Channel) of
+        ?NO_TENANT ->
+            return(State);
+        TenantId ->
+            NLimiter = emqx_limiter_container:upgrade_with_tenant(TenantId, Limiter),
+            return(State#state{limiter = NLimiter})
+    end;
 handle_info({event, disconnected}, State = #state{channel = Channel}) ->
     ClientId = emqx_channel:info(clientid, Channel),
     emqx_cm:set_chan_info(ClientId, info(State)),

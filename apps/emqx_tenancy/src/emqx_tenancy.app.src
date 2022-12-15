@@ -1,6 +1,6 @@
 {application, emqx_tenancy, [
     {description, "Multi-Tenancy for EMQX"},
-    {vsn, "0.1.0"},
+    {vsn, "1.0.0"},
     {registered, [emqx_tenancy_sup]},
     {mod, {emqx_tenancy_app, []}},
     {applications, [kernel, stdlib, emqx]},

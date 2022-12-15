@@ -194,9 +194,7 @@ format(WhichNode, {{_Subscriber, Topic}, Options}) ->
     ).
 
 get_topic(Topic0, {TenantId, ClientId}, Options) ->
-    %% FIXME:
-    Prefix0 = emqx_config:get([tenant, topic_prefix], <<"">>),
-    Prefix = emqx_mountpoint:replvar(Prefix0, #{tenant_id => TenantId}),
+    Prefix = emqx_mountpoint:replvar(?TENANT_TOPIC_PREFIX, #{tenant_id => TenantId}),
     PrefixLen = erlang:byte_size(Prefix),
     Topic =
         case Topic0 of
@@ -225,9 +223,7 @@ get_tenant(Qs) ->
         false ->
             {undefined, undefined};
         {_, '=:=', TenantId} ->
-            %% FIXME:
-            Prefix0 = emqx_config:get([tenant, topic_prefix], <<"">>),
-            {TenantId, emqx_mountpoint:replvar(Prefix0, #{tenant_id => TenantId})}
+            {TenantId, emqx_mountpoint:replvar(?TENANT_TOPIC_PREFIX, #{tenant_id => TenantId})}
     end.
 
 gen_match_spec(Qs, Tenant) ->

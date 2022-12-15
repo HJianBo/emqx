@@ -319,7 +319,7 @@ tenant_with_name(put, #{bindings := #{id := Id}, body := Body}) ->
     case emqx_tenancy:update(Id, Body) of
         {ok, Tenant} -> {200, Tenant};
         {error, invalid_tenant} -> {400, #{code => 'BAD_REQUEST', message => <<"invalid_tenant">>}};
-        {error, not_found} -> {404, ?NOT_FOUND_RESPONSE}
+        {error, {_Node, not_found}} -> {404, ?NOT_FOUND_RESPONSE}
     end.
 
 %%--------------------------------------------------------------------

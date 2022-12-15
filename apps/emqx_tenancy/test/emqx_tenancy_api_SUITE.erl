@@ -49,7 +49,7 @@ groups() ->
 init_per_suite(Config) ->
     ok = application:load(emqx_tenancy),
     emqx_dashboard_api_test_helpers:init_suite(
-        [emqx_conf, emqx_authn, emqx_authz],
+        [emqx_conf, emqx_authn, emqx_authz, emqx_tenancy],
         fun set_special_configs/1
     ),
     Config.
@@ -64,8 +64,13 @@ end_per_suite(_) ->
             <<"sources">> => []
         }
     ),
-    emqx_dashboard_api_test_helpers:end_suite([emqx_authn, emqx_authz, emqx_conf]).
+    emqx_dashboard_api_test_helpers:end_suite([emqx_tenancy, emqx_authn, emqx_authz, emqx_conf]).
 
+set_special_configs(emqx) ->
+    %% restart gen_rpc with `stateless` mode
+    application:set_env(gen_rpc, port_discovery, stateless),
+    ok = application:stop(gen_rpc),
+    ok = application:start(gen_rpc);
 set_special_configs(emqx_authz) ->
     {ok, _} = emqx:update_config([authorization, sources], []);
 set_special_configs(_) ->

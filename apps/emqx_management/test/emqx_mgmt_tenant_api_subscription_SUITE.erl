@@ -40,7 +40,6 @@ all() ->
 
 init_per_suite(Config) ->
     emqx_mgmt_api_test_util:init_suite(),
-    emqx_config:put([tenant, tenant_id_from], peersni),
     ClientFn = emqx_tenant_test_helpers:reload_listener_with_ppv2(
         [listeners, tcp, default],
         ?HOST
@@ -133,7 +132,7 @@ t_subscription_api(Config) ->
     MatchMeta = maps:get(<<"meta">>, MatchData),
     ?assertEqual(1, maps:get(<<"page">>, MatchMeta)),
     ?assertEqual(emqx_mgmt:max_row_limit(), maps:get(<<"limit">>, MatchMeta)),
-    ?assertEqual(1, maps:get(<<"count">>, MatchMeta)),
+    ?assertEqual(0, maps:get(<<"count">>, MatchMeta)),
     MatchSubs = maps:get(<<"data">>, MatchData),
     ?assertEqual(1, length(MatchSubs)),
 
