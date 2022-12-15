@@ -50,7 +50,8 @@
 ]).
 
 -export([
-    query/4,
+    qs2ms/2,
+    run_fuzzy_filter/2,
     format_user_info/1
 ]).
 
@@ -88,17 +89,6 @@
     {<<"like_user_id">>, binary},
     {<<"is_superuser">>, atom}
 ]).
--define(QUERY_FUN, {?MODULE, query}).
-
--dialyzer(
-    {nowarn_function, [
-        qs2ms/1,
-        do_destroy/1,
-        query/4,
-        fuzzy_filter_fun/1,
-        run_fuzzy_filter/2
-    ]}
-).
 
 %%------------------------------------------------------------------------------
 %% Mnesia bootstrap
@@ -307,7 +297,14 @@ lookup_user(Tenant, UserID, #{user_group := UserGroup}) ->
 
 list_users(Tenant, QueryString, #{user_group := UserGroup}) ->
     NQueryString = QueryString#{<<"user_group">> => UserGroup, <<"tenant_id">> => Tenant},
-    emqx_mgmt_api:node_query(node(), NQueryString, ?TAB, ?AUTHN_QSCHEMA, ?QUERY_FUN).
+    emqx_mgmt_api:node_query(
+        node(),
+        ?TAB,
+        NQueryString,
+        ?AUTHN_QSCHEMA,
+        fun ?MODULE:qs2ms/2,
+        fun ?MODULE:format_user_info/1
+    ).
 
 do_tenant_deleted(Tenant) ->
     Ms = ets:fun2ms(
@@ -322,39 +319,20 @@ do_tenant_deleted(Tenant) ->
     lists:foreach(fun(K) -> mnesia:delete(?TAB, K, write) end, All).
 
 %%--------------------------------------------------------------------
-%% Query Functions
+%% QueryString to MatchSpec
 
-query(Tab, {QString, []}, Continuation, Limit) ->
-    Ms = qs2ms(QString),
-    emqx_mgmt_api:select_table_with_count(
-        Tab,
-        Ms,
-        Continuation,
-        Limit,
-        fun format_user_info/1
-    );
-query(Tab, {QString, FuzzyQString}, Continuation, Limit) ->
-    Ms = qs2ms(QString),
-    FuzzyFilterFun = fuzzy_filter_fun(FuzzyQString),
-    emqx_mgmt_api:select_table_with_count(
-        Tab,
-        {Ms, FuzzyFilterFun},
-        Continuation,
-        Limit,
-        fun format_user_info/1
-    ).
-
-%%--------------------------------------------------------------------
-%% Match funcs
+-spec qs2ms(atom(), {list(), list()}) -> emqx_mgmt_api:match_spec_and_filter().
+qs2ms(_Tab, {QString, FuzzyQString}) ->
+    #{
+        match_spec => qs2ms(QString),
+        fuzzy_fun => fuzzy_filter_fun(FuzzyQString)
+    }.
 
 %% Fuzzy username funcs
+fuzzy_filter_fun([]) ->
+    undefined;
 fuzzy_filter_fun(Fuzzy) ->
-    fun(MsRaws) when is_list(MsRaws) ->
-        lists:filter(
-            fun(E) -> run_fuzzy_filter(E, Fuzzy) end,
-            MsRaws
-        )
-    end.
+    {fun ?MODULE:run_fuzzy_filter/2, [Fuzzy]}.
 
 run_fuzzy_filter(_, []) ->
     true;

@@ -23,10 +23,12 @@
 -boot_mnesia({mnesia, [boot]}).
 
 -export([load_tenants/0]).
+
 -export([create/1, do_create/1]).
 -export([read/1, do_read/1]).
 -export([update/2, do_update/1]).
 -export([delete/1, do_delete/1]).
+
 -export([format/1]).
 
 %% Internal exports

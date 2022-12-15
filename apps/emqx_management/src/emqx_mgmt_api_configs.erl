@@ -103,7 +103,9 @@ schema("/configs") ->
                     )}
             ],
             responses => #{
-                200 => lists:map(fun({_, Schema}) -> Schema end, config_list())
+                200 => lists:map(fun({_, Schema}) -> Schema end, config_list()),
+                404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND']),
+                500 => emqx_dashboard_swagger:error_codes(['BAD_NODE'])
             }
         }
     };
@@ -266,7 +268,7 @@ config(put, #{body := Body}, Req) ->
 global_zone_configs(get, _Params, _Req) ->
     Paths = global_zone_roots(),
     Zones = lists:foldl(
-        fun(Path, Acc) -> Acc#{Path => get_config_with_default([Path])} end,
+        fun(Path, Acc) -> maps:merge(Acc, get_config_with_default(Path)) end,
         #{},
         Paths
     ),
@@ -311,14 +313,15 @@ config_reset(post, _Params, Req) ->
     end.
 
 configs(get, Params, _Req) ->
-    Node = maps:get(node, Params, node()),
+    QS = maps:get(query_string, Params, #{}),
+    Node = maps:get(<<"node">>, QS, node()),
     case
         lists:member(Node, mria_mnesia:running_nodes()) andalso
             emqx_management_proto_v2:get_full_config(Node)
     of
         false ->
             Message = list_to_binary(io_lib:format("Bad node ~p, reason not found", [Node])),
-            {500, #{code => 'BAD_NODE', message => Message}};
+            {404, #{code => 'NOT_FOUND', message => Message}};
         {badrpc, R} ->
             Message = list_to_binary(io_lib:format("Bad node ~p, reason ~p", [Node, R])),
             {500, #{code => 'BAD_NODE', message => Message}};
@@ -340,7 +343,7 @@ get_full_config() ->
     ).
 
 get_config_with_default(Path) ->
-    emqx_config:fill_defaults(emqx:get_raw_config(Path)).
+    emqx_config:fill_defaults(#{Path => emqx:get_raw_config([Path])}).
 
 conf_path_from_querystr(Req) ->
     case proplists:get_value(<<"conf_path">>, cowboy_req:parse_qs(Req)) of

@@ -116,6 +116,11 @@ fields(message) ->
                 required => true,
                 example => <<"hello emqx api">>
             })},
+        {properties,
+            hoconsc:mk(hoconsc:ref(?MODULE, message_properties), #{
+                desc => ?DESC(message_properties),
+                required => false
+            })},
         {retain,
             hoconsc:mk(boolean(), #{
                 desc => ?DESC(retain),
@@ -132,6 +137,43 @@ fields(publish_message) ->
                 default => plain
             })}
     ] ++ fields(message);
+fields(message_properties) ->
+    [
+        {'payload_format_indicator',
+            hoconsc:mk(typerefl:range(0, 1), #{
+                desc => ?DESC(msg_payload_format_indicator),
+                required => false,
+                example => 0
+            })},
+        {'message_expiry_interval',
+            hoconsc:mk(integer(), #{
+                desc => ?DESC(msg_message_expiry_interval),
+                required => false
+            })},
+        {'response_topic',
+            hoconsc:mk(binary(), #{
+                desc => ?DESC(msg_response_topic),
+                required => false,
+                example => <<"some_other_topic">>
+            })},
+        {'correlation_data',
+            hoconsc:mk(binary(), #{
+                desc => ?DESC(msg_correlation_data),
+                required => false
+            })},
+        {'user_properties',
+            hoconsc:mk(map(), #{
+                desc => ?DESC(msg_user_properties),
+                required => false,
+                example => #{<<"foo">> => <<"bar">>}
+            })},
+        {'content_type',
+            hoconsc:mk(binary(), #{
+                desc => ?DESC(msg_content_type),
+                required => false,
+                example => <<"text/plain">>
+            })}
+    ];
 fields(publish_ok) ->
     [
         {id,
@@ -292,6 +334,16 @@ make_message(Map, TenantId) ->
             QoS = maps:get(<<"qos">>, Map, 0),
             Topic0 = maps:get(<<"topic">>, Map),
             Retain = maps:get(<<"retain">>, Map, false),
+            Headers =
+                case maps:get(<<"properties">>, Map, #{}) of
+                    Properties when
+                        is_map(Properties) andalso
+                            map_size(Properties) > 0
+                    ->
+                        #{properties => to_msg_properties(Properties)};
+                    _ ->
+                        #{}
+                end,
             try
                 _ = emqx_topic:validate(name, Topic0)
             catch
@@ -299,13 +351,27 @@ make_message(Map, TenantId) ->
                     throw(invalid_topic_name)
             end,
             Topic = emqx_mgmt_api_clients:warp_topic(Topic0, TenantId),
-            Message = emqx_message:make(From, QoS, Topic, Payload, #{retain => Retain}, #{}),
+            Message = emqx_message:make(From, QoS, Topic, Payload, #{retain => Retain}, Headers),
             Size = emqx_message:estimate_size(Message),
             (Size > size_limit()) andalso throw(packet_too_large),
             {ok, Message};
         {error, R} ->
             {error, R}
     end.
+
+to_msg_properties(Properties) ->
+    maps:fold(
+        fun to_property/3,
+        #{},
+        Properties
+    ).
+
+to_property(<<"payload_format_indicator">>, V, M) -> M#{'Payload-Format-Indicator' => V};
+to_property(<<"message_expiry_interval">>, V, M) -> M#{'Message-Expiry-Interval' => V};
+to_property(<<"response_topic">>, V, M) -> M#{'Response-Topic' => V};
+to_property(<<"correlation_data">>, V, M) -> M#{'Correlation-Data' => V};
+to_property(<<"user_properties">>, V, M) -> M#{'User-Property' => maps:to_list(V)};
+to_property(<<"content_type">>, V, M) -> M#{'Content-Type' => V}.
 
 %% get the global packet size limit since HTTP API does not belong to any zone.
 size_limit() ->

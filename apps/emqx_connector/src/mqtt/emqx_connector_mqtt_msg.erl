@@ -38,13 +38,15 @@
 
 -type msg() :: emqx_types:message().
 -type exp_msg() :: emqx_types:message() | #mqtt_msg{}.
-
--type variables() :: #{
-    mountpoint := undefined | binary(),
-    remote_topic := binary(),
-    remote_qos := original | integer(),
+-type remote_config() :: #{
+    topic := binary(),
+    qos := original | integer(),
     retain := original | boolean(),
     payload := binary()
+}.
+-type variables() :: #{
+    mountpoint := undefined | binary(),
+    remote := remote_config()
 }.
 
 make_pub_vars(_, undefined) ->
@@ -67,34 +69,41 @@ to_remote_msg(#message{flags = Flags0} = Msg, Vars) ->
     MapMsg = maps:put(retain, Retain0, Columns),
     to_remote_msg(MapMsg, Vars);
 to_remote_msg(MapMsg, #{
-    remote_topic := TopicToken,
-    payload := PayloadToken,
-    remote_qos := QoSToken,
-    retain := RetainToken,
+    remote := #{
+        topic := TopicToken,
+        payload := PayloadToken,
+        qos := QoSToken,
+        retain := RetainToken
+    },
     mountpoint := Mountpoint
 }) when is_map(MapMsg) ->
     Topic = replace_vars_in_str(TopicToken, MapMsg),
     Payload = process_payload(PayloadToken, MapMsg),
     QoS = replace_simple_var(QoSToken, MapMsg),
     Retain = replace_simple_var(RetainToken, MapMsg),
+    PubProps = maps:get(pub_props, MapMsg, #{}),
     #mqtt_msg{
         qos = QoS,
         retain = Retain,
         topic = topic(Mountpoint, Topic),
-        props = #{},
+        props = emqx_misc:pub_props_to_packet(PubProps),
         payload = Payload
     };
 to_remote_msg(#message{topic = Topic} = Msg, #{mountpoint := Mountpoint}) ->
     Msg#message{topic = topic(Mountpoint, Topic)}.
 
 %% published from remote node over a MQTT connection
+to_broker_msg(Msg, Vars, undefined) ->
+    to_broker_msg(Msg, Vars, #{});
 to_broker_msg(
     #{dup := Dup} = MapMsg,
     #{
-        local_topic := TopicToken,
-        payload := PayloadToken,
-        local_qos := QoSToken,
-        retain := RetainToken,
+        local := #{
+            topic := TopicToken,
+            payload := PayloadToken,
+            qos := QoSToken,
+            retain := RetainToken
+        },
         mountpoint := Mountpoint
     },
     Props
@@ -103,8 +112,9 @@ to_broker_msg(
     Payload = process_payload(PayloadToken, MapMsg),
     QoS = replace_simple_var(QoSToken, MapMsg),
     Retain = replace_simple_var(RetainToken, MapMsg),
+    PubProps = maps:get(pub_props, MapMsg, #{}),
     set_headers(
-        Props,
+        Props#{properties => emqx_misc:pub_props_to_packet(PubProps)},
         emqx_message:set_flags(
             #{dup => Dup, retain => Retain},
             emqx_message:make(bridge, QoS, topic(Mountpoint, Topic), Payload)
@@ -151,8 +161,6 @@ estimate_size(#{topic := Topic, payload := Payload}) ->
 estimate_size(Term) ->
     erlang:external_size(Term).
 
-set_headers(undefined, Msg) ->
-    Msg;
 set_headers(Val, Msg) ->
     emqx_message:set_headers(Val, Msg).
 topic(undefined, Topic) -> Topic;

@@ -138,7 +138,12 @@ fields(limit) ->
     Meta = #{in => query, desc => Desc, default => ?DEFAULT_ROW, example => 50},
     [{limit, hoconsc:mk(range(1, ?MAX_ROW_LIMIT), Meta)}];
 fields(count) ->
-    Meta = #{desc => <<"Results count.">>, required => true},
+    Desc = <<
+        "Total number of records counted.<br/>"
+        "Note: this field is <code>0</code> when the queryed table is empty, "
+        "or if the query can not be optimized and requires a full table scan."
+    >>,
+    Meta = #{desc => Desc, required => true},
     [{count, hoconsc:mk(non_neg_integer(), Meta)}];
 fields(meta) ->
     fields(page) ++ fields(limit) ++ fields(count);
@@ -687,6 +692,13 @@ typename_to_spec("ip_port()", _Mod) ->
     #{type => string, example => <<"127.0.0.1:80">>};
 typename_to_spec("host_port()", _Mod) ->
     #{type => string, example => <<"example.host.domain:80">>};
+typename_to_spec("write_syntax()", _Mod) ->
+    #{
+        type => string,
+        example =>
+            <<"${topic},clientid=${clientid}", " ", "payload=${payload},",
+                "${clientid}_int_value=${payload.int_key}i,", "bool=${payload.bool}">>
+    };
 typename_to_spec("url()", _Mod) ->
     #{type => string, example => <<"http://127.0.0.1">>};
 typename_to_spec("connect_timeout()", Mod) ->

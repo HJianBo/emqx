@@ -31,12 +31,18 @@
 -export([api_spec/0, paths/0, schema/1, namespace/0]).
 
 %% API callbacks
--export(['/rule_events'/2, '/rule_test'/2, '/rules'/2, '/rules/:id'/2, '/rules/:id/reset_metrics'/2]).
+-export([
+    '/rule_events'/2,
+    '/rule_test'/2,
+    '/rules'/2,
+    '/rules/:id'/2,
+    '/rules/:id/metrics'/2,
+    '/rules/:id/metrics/reset'/2
+]).
 
 %% query callback
--export([query/4]).
+-export([qs2ms/2, run_fuzzy_match/2, format_rule_resp/1]).
 
--define(ERR_NO_RULE(ID), list_to_binary(io_lib:format("Rule ~ts Not Found", [(ID)]))).
 -define(ERR_BADARGS(REASON), begin
     R0 = err_msg(REASON),
     <<"Bad Arguments: ", R0/binary>>
@@ -126,7 +132,15 @@ namespace() -> "rule".
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => false}).
 
-paths() -> ["/rule_events", "/rule_test", "/rules", "/rules/:id", "/rules/:id/reset_metrics"].
+paths() ->
+    [
+        "/rule_events",
+        "/rule_test",
+        "/rules",
+        "/rules/:id",
+        "/rules/:id/metrics",
+        "/rules/:id/metrics/reset"
+    ].
 
 error_schema(Code, Message) when is_atom(Code) ->
     emqx_dashboard_swagger:error_codes([Code], list_to_binary(Message)).
@@ -139,6 +153,9 @@ rule_test_schema() ->
 
 rule_info_schema() ->
     ref(emqx_rule_api_schema, "rule_info").
+
+rule_metrics_schema() ->
+    ref(emqx_rule_api_schema, "rule_metrics").
 
 schema("/rules") ->
     #{
@@ -230,17 +247,31 @@ schema("/rules/:id") ->
             }
         }
     };
-schema("/rules/:id/reset_metrics") ->
+schema("/rules/:id/metrics") ->
     #{
-        'operationId' => '/rules/:id/reset_metrics',
+        'operationId' => '/rules/:id/metrics',
+        get => #{
+            tags => [<<"rules">>],
+            description => ?DESC("api4_1"),
+            summary => <<"Get a Rule's Metrics">>,
+            parameters => param_path_id(),
+            responses => #{
+                404 => error_schema('NOT_FOUND', "Rule not found"),
+                200 => rule_metrics_schema()
+            }
+        }
+    };
+schema("/rules/:id/metrics/reset") ->
+    #{
+        'operationId' => '/rules/:id/metrics/reset',
         put => #{
             tags => [<<"rules">>],
             description => ?DESC("api7"),
             summary => <<"Reset a Rule Metrics">>,
             parameters => param_path_id(),
             responses => #{
-                400 => error_schema('BAD_REQUEST', "RPC Call Failed"),
-                200 => <<"Reset Success">>
+                404 => error_schema('NOT_FOUND', "Rule not found"),
+                204 => <<"Reset Success">>
             }
         }
     };
@@ -274,10 +305,11 @@ param_path_id() ->
     case
         emqx_mgmt_api:node_query(
             node(),
-            QueryString,
             ?RULE_TAB,
+            QueryString,
             ?RULE_QS_SCHEMA,
-            {?MODULE, query}
+            fun ?MODULE:qs2ms/2,
+            fun ?MODULE:format_rule_resp/1
         )
     of
         {error, page_limit_invalid} ->
@@ -362,15 +394,29 @@ param_path_id() ->
             }),
             {500, #{code => 'INTERNAL_ERROR', message => ?ERR_BADARGS(Reason)}}
     end.
-'/rules/:id/reset_metrics'(put, #{bindings := #{id := RuleId}}) ->
-    case emqx_rule_engine_proto_v1:reset_metrics(RuleId) of
-        ok ->
-            {200, <<"Reset Success">>};
-        Failed ->
-            {400, #{
-                code => 'BAD_REQUEST',
-                message => err_msg(Failed)
-            }}
+
+'/rules/:id/metrics'(get, #{bindings := #{id := Id}}) ->
+    case emqx_rule_engine:get_rule(Id) of
+        {ok, _Rule} ->
+            NodeMetrics = get_rule_metrics(Id),
+            MetricsResp =
+                #{
+                    id => Id,
+                    metrics => aggregate_metrics(NodeMetrics),
+                    node_metrics => NodeMetrics
+                },
+            {200, MetricsResp};
+        not_found ->
+            {404, #{code => 'NOT_FOUND', message => <<"Rule Id Not Found">>}}
+    end.
+
+'/rules/:id/metrics/reset'(put, #{bindings := #{id := Id}}) ->
+    case emqx_rule_engine:get_rule(Id) of
+        {ok, _Rule} ->
+            ok = emqx_rule_engine_proto_v1:reset_metrics(Id),
+            {204};
+        not_found ->
+            {404, #{code => 'NOT_FOUND', message => <<"Rule Id Not Found">>}}
     end.
 
 %%------------------------------------------------------------------------------
@@ -393,15 +439,12 @@ format_rule_resp(#{
     enable := Enable,
     description := Descr
 }) ->
-    NodeMetrics = get_rule_metrics(Id),
     #{
         id => Id,
         name => Name,
         from => Topics,
         actions => format_action(Action),
         sql => SQL,
-        metrics => aggregate_metrics(NodeMetrics),
-        node_metrics => NodeMetrics,
         enable => Enable,
         created_at => format_datetime(CreatedAt, millisecond),
         description => Descr
@@ -552,38 +595,40 @@ filter_out_request_body(Conf) ->
     ],
     maps:without(ExtraConfs, Conf).
 
-query(Tab, {Qs, Fuzzy}, Start, Limit) ->
-    Ms = qs2ms(),
-    FuzzyFun = fuzzy_match_fun(Qs, Ms, Fuzzy),
-    emqx_mgmt_api:select_table_with_count(
-        Tab, {Ms, FuzzyFun}, Start, Limit, fun format_rule_resp/1
-    ).
-
-%% rule is not a record, so everything is fuzzy filter.
-qs2ms() ->
-    [{'_', [], ['$_']}].
-
-fuzzy_match_fun(Qs, Ms, Fuzzy) ->
-    MsC = ets:match_spec_compile(Ms),
-    fun(Rows) ->
-        Ls = ets:match_spec_run(Rows, MsC),
-        lists:filter(
-            fun(E) ->
-                run_qs_match(E, Qs) andalso
-                    run_fuzzy_match(E, Fuzzy)
-            end,
-            Ls
-        )
+-spec qs2ms(atom(), {list(), list()}) -> emqx_mgmt_api:match_spec_and_filter().
+qs2ms(_Tab, {Qs, Fuzzy}) ->
+    case lists:keytake(from, 1, Qs) of
+        false ->
+            #{match_spec => generate_match_spec(Qs), fuzzy_fun => fuzzy_match_fun(Fuzzy)};
+        {value, {from, '=:=', From}, Ls} ->
+            #{
+                match_spec => generate_match_spec(Ls),
+                fuzzy_fun => fuzzy_match_fun([{from, '=:=', From} | Fuzzy])
+            }
     end.
 
-run_qs_match(_, []) ->
-    true;
-run_qs_match(E = {_Id, #{enable := Enable}}, [{enable, '=:=', Pattern} | Qs]) ->
-    Enable =:= Pattern andalso run_qs_match(E, Qs);
-run_qs_match(E = {_Id, #{from := From}}, [{from, '=:=', Pattern} | Qs]) ->
-    lists:member(Pattern, From) andalso run_qs_match(E, Qs);
-run_qs_match(E, [_ | Qs]) ->
-    run_qs_match(E, Qs).
+generate_match_spec(Qs) ->
+    {MtchHead, Conds} = generate_match_spec(Qs, 2, {#{}, []}),
+    [{{'_', MtchHead}, Conds, ['$_']}].
+
+generate_match_spec([], _, {MtchHead, Conds}) ->
+    {MtchHead, lists:reverse(Conds)};
+generate_match_spec([Qs | Rest], N, {MtchHead, Conds}) ->
+    Holder = binary_to_atom(iolist_to_binary(["$", integer_to_list(N)]), utf8),
+    NMtchHead = emqx_mgmt_util:merge_maps(MtchHead, ms(element(1, Qs), Holder)),
+    NConds = put_conds(Qs, Holder, Conds),
+    generate_match_spec(Rest, N + 1, {NMtchHead, NConds}).
+
+put_conds({_, Op, V}, Holder, Conds) ->
+    [{Op, Holder, V} | Conds].
+
+ms(enable, X) ->
+    #{enable => X}.
+
+fuzzy_match_fun([]) ->
+    undefined;
+fuzzy_match_fun(Fuzzy) ->
+    {fun ?MODULE:run_fuzzy_match/2, [Fuzzy]}.
 
 run_fuzzy_match(_, []) ->
     true;
@@ -591,6 +636,8 @@ run_fuzzy_match(E = {Id, _}, [{id, like, Pattern} | Fuzzy]) ->
     binary:match(Id, Pattern) /= nomatch andalso run_fuzzy_match(E, Fuzzy);
 run_fuzzy_match(E = {_Id, #{description := Desc}}, [{description, like, Pattern} | Fuzzy]) ->
     binary:match(Desc, Pattern) /= nomatch andalso run_fuzzy_match(E, Fuzzy);
+run_fuzzy_match(E = {_, #{from := Topics}}, [{from, '=:=', Pattern} | Fuzzy]) ->
+    lists:member(Pattern, Topics) /= false andalso run_fuzzy_match(E, Fuzzy);
 run_fuzzy_match(E = {_Id, #{from := Topics}}, [{from, match, Pattern} | Fuzzy]) ->
     lists:any(fun(For) -> emqx_topic:match(For, Pattern) end, Topics) andalso
         run_fuzzy_match(E, Fuzzy);

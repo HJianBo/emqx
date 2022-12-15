@@ -32,10 +32,10 @@
 %% `apps/emqx/src/bpapi/README.md'
 
 %% Community edition
--define(EMQX_RELEASE_CE, "5.0.10").
+-define(EMQX_RELEASE_CE, "5.0.12").
 
 %% Enterprise edition
--define(EMQX_RELEASE_EE, "5.0.0-alpha.1").
+-define(EMQX_RELEASE_EE, "5.0.0-beta.6").
 
 %% the HTTP API version
 -define(EMQX_API_VERSION, "5.0").

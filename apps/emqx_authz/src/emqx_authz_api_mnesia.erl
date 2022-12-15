@@ -26,8 +26,8 @@
 -import(hoconsc, [mk/1, mk/2, ref/1, ref/2, array/1, enum/1]).
 -import(emqx_dashboard_utils, [tenant/1, tenant/2]).
 
--define(QUERY_USERNAME_FUN, {?MODULE, query_username}).
--define(QUERY_CLIENTID_FUN, {?MODULE, query_clientid}).
+-define(QUERY_USERNAME_FUN, fun ?MODULE:query_username/2).
+-define(QUERY_CLIENTID_FUN, fun ?MODULE:query_clientid/2).
 
 -define(ACL_USERNAME_QSCHEMA, [
     {<<"tenant_id">>, binary},
@@ -57,11 +57,11 @@
 
 %% query funs
 -export([
-    query_username/4,
-    query_clientid/4
+    query_username/2,
+    query_clientid/2,
+    run_fuzzy_filter/2,
+    format_result/1
 ]).
-
--export([format_result/1]).
 
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(NOT_FOUND, 'NOT_FOUND').
@@ -421,10 +421,11 @@ users(get, Req = #{query_string := QueryString0}) ->
     case
         emqx_mgmt_api:node_query(
             node(),
-            QueryString,
             ?ACL_TABLE,
+            QueryString,
             ?ACL_USERNAME_QSCHEMA,
-            ?QUERY_USERNAME_FUN
+            ?QUERY_USERNAME_FUN,
+            fun ?MODULE:format_result/1
         )
     of
         {error, page_limit_invalid} ->
@@ -466,10 +467,11 @@ clients(get, Req = #{query_string := QueryString0}) ->
     case
         emqx_mgmt_api:node_query(
             node(),
-            QueryString,
             ?ACL_TABLE,
+            QueryString,
             ?ACL_CLIENTID_QSCHEMA,
-            ?QUERY_CLIENTID_FUN
+            ?QUERY_CLIENTID_FUN,
+            fun ?MODULE:format_result/1
         )
     of
         {error, page_limit_invalid} ->
@@ -681,63 +683,29 @@ count_new_rules_number(Key, NewRules) ->
     length(NewRules) - length(OldRules).
 
 %%--------------------------------------------------------------------
-%% Query Functions
+%% QueryString to MatchSpec
 
-query_username(Tab, {QString, []}, Continuation, Limit) ->
+-spec query_username(atom(), {list(), list()}) -> emqx_mgmt_api:match_spec_and_filter().
+query_username(_Tab, {QString, FuzzyQString}) ->
     {value, {tenant_id, _, Tenant}, _} = lists:keytake(tenant_id, 1, QString),
-    Ms = emqx_authz_mnesia:list_username_rules(Tenant),
-    emqx_mgmt_api:select_table_with_count(
-        Tab,
-        Ms,
-        Continuation,
-        Limit,
-        fun format_result/1
-    );
-query_username(Tab, {QString, FuzzyQString}, Continuation, Limit) ->
-    {value, {tenant_id, _, Tenant}, _} = lists:keytake(tenant_id, 1, QString),
-    Ms = emqx_authz_mnesia:list_username_rules(Tenant),
-    FuzzyFilterFun = fuzzy_filter_fun(FuzzyQString),
-    emqx_mgmt_api:select_table_with_count(
-        Tab,
-        {Ms, FuzzyFilterFun},
-        Continuation,
-        Limit,
-        fun format_result/1
-    ).
+    #{
+        match_spec => emqx_authz_mnesia:list_username_rules(Tenant),
+        fuzzy_fun => fuzzy_filter_fun(FuzzyQString)
+    }.
 
-query_clientid(Tab, {QString, []}, Continuation, Limit) ->
+-spec query_clientid(atom(), {list(), list()}) -> emqx_mgmt_api:match_spec_and_filter().
+query_clientid(_Tab, {QString, FuzzyQString}) ->
     {value, {tenant_id, _, Tenant}, _} = lists:keytake(tenant_id, 1, QString),
-    Ms = emqx_authz_mnesia:list_clientid_rules(Tenant),
-    emqx_mgmt_api:select_table_with_count(
-        Tab,
-        Ms,
-        Continuation,
-        Limit,
-        fun format_result/1
-    );
-query_clientid(Tab, {QString, FuzzyQString}, Continuation, Limit) ->
-    {value, {tenant_id, _, Tenant}, _} = lists:keytake(tenant_id, 1, QString),
-    Ms = emqx_authz_mnesia:list_clientid_rules(Tenant),
-    FuzzyFilterFun = fuzzy_filter_fun(FuzzyQString),
-    emqx_mgmt_api:select_table_with_count(
-        Tab,
-        {Ms, FuzzyFilterFun},
-        Continuation,
-        Limit,
-        fun format_result/1
-    ).
-
-%%--------------------------------------------------------------------
-%% Match funcs
+    #{
+        match_spec => emqx_authz_mnesia:list_clientid_rules(Tenant),
+        fuzzy_fun => fuzzy_filter_fun(FuzzyQString)
+    }.
 
 %% Fuzzy username funcs
+fuzzy_filter_fun([]) ->
+    undefined;
 fuzzy_filter_fun(Fuzzy) ->
-    fun(MsRaws) when is_list(MsRaws) ->
-        lists:filter(
-            fun(E) -> run_fuzzy_filter(E, Fuzzy) end,
-            MsRaws
-        )
-    end.
+    {fun ?MODULE:run_fuzzy_filter/2, [Fuzzy]}.
 
 run_fuzzy_filter(_, []) ->
     true;

@@ -52,18 +52,23 @@ groups() ->
             t_create_existing_rule,
             t_get_rules_for_topic,
             t_get_rules_for_topic_2,
-            t_get_rules_with_same_event
+            t_get_rules_with_same_event,
+            t_get_rule_ids_by_action,
+            t_ensure_action_removed
         ]},
         {runtime, [], [
             t_match_atom_and_binary,
             t_sqlselect_0,
             t_sqlselect_00,
             t_sqlselect_001,
+            t_sqlselect_inject_props,
             t_sqlselect_01,
             t_sqlselect_02,
             t_sqlselect_1,
             t_sqlselect_2,
             t_sqlselect_3,
+            t_sqlselect_message_publish_event_keep_original_props_1,
+            t_sqlselect_message_publish_event_keep_original_props_2,
             t_sqlparse_event_1,
             t_sqlparse_event_2,
             t_sqlparse_event_3,
@@ -91,7 +96,13 @@ groups() ->
             t_sqlparse_new_map,
             t_sqlparse_invalid_json
         ]},
-        {events, [], [t_events]},
+        {events, [], [
+            t_events,
+            t_event_client_disconnected_normal,
+            t_event_client_disconnected_kicked,
+            t_event_client_disconnected_discarded,
+            t_event_client_disconnected_takenover
+        ]},
         {telemetry, [], [
             t_get_basic_usage_info_0,
             t_get_basic_usage_info_1
@@ -431,6 +442,105 @@ t_get_rules_with_same_event(_Config) ->
     ]),
     ok.
 
+t_get_rule_ids_by_action(_) ->
+    ID = <<"t_get_rule_ids_by_action">>,
+    Rule1 = #{
+        enable => false,
+        id => ID,
+        sql => <<"SELECT * FROM \"t\"">>,
+        from => [<<"t">>],
+        fields => [<<"*">>],
+        is_foreach => false,
+        conditions => {},
+        actions => [
+            #{mod => emqx_rule_actions, func => console, args => #{}},
+            #{mod => emqx_rule_actions, func => republish, args => #{}},
+            <<"mqtt:my_mqtt_bridge">>,
+            <<"mysql:foo">>
+        ],
+        description => ID,
+        created_at => erlang:system_time(millisecond)
+    },
+    ok = insert_rules([Rule1]),
+    ?assertMatch(
+        [ID],
+        emqx_rule_engine:get_rule_ids_by_action(#{function => <<"emqx_rule_actions:console">>})
+    ),
+    ?assertMatch(
+        [ID],
+        emqx_rule_engine:get_rule_ids_by_action(#{function => <<"emqx_rule_actions:republish">>})
+    ),
+    ?assertEqual([], emqx_rule_engine:get_rule_ids_by_action(#{function => <<"some_mod:fun">>})),
+    ?assertMatch([ID], emqx_rule_engine:get_rule_ids_by_action(<<"mysql:foo">>)),
+    ?assertEqual([], emqx_rule_engine:get_rule_ids_by_action(<<"mysql:not_exists">>)),
+    ok = delete_rules_by_ids([<<"t_get_rule_ids_by_action">>]).
+
+t_ensure_action_removed(_) ->
+    Id = <<"t_ensure_action_removed">>,
+    GetSelectedData = <<"emqx_rule_sqltester:get_selected_data">>,
+    emqx:update_config(
+        [rule_engine, rules],
+        #{
+            Id => #{
+                <<"actions">> => [
+                    #{<<"function">> => GetSelectedData},
+                    #{<<"function">> => <<"console">>},
+                    #{<<"function">> => <<"republish">>},
+                    <<"mysql:foo">>,
+                    <<"mqtt:bar">>
+                ],
+                <<"description">> => <<"">>,
+                <<"sql">> => <<"SELECT * FROM \"t/#\"">>
+            }
+        }
+    ),
+    ?assertMatch(
+        #{
+            <<"actions">> := [
+                #{<<"function">> := GetSelectedData},
+                #{<<"function">> := <<"console">>},
+                #{<<"function">> := <<"republish">>},
+                <<"mysql:foo">>,
+                <<"mqtt:bar">>
+            ]
+        },
+        emqx:get_raw_config([rule_engine, rules, Id])
+    ),
+    ok = emqx_rule_engine:ensure_action_removed(Id, #{function => <<"console">>}),
+    ?assertMatch(
+        #{
+            <<"actions">> := [
+                #{<<"function">> := GetSelectedData},
+                #{<<"function">> := <<"republish">>},
+                <<"mysql:foo">>,
+                <<"mqtt:bar">>
+            ]
+        },
+        emqx:get_raw_config([rule_engine, rules, Id])
+    ),
+    ok = emqx_rule_engine:ensure_action_removed(Id, <<"mysql:foo">>),
+    ?assertMatch(
+        #{
+            <<"actions">> := [
+                #{<<"function">> := GetSelectedData},
+                #{<<"function">> := <<"republish">>},
+                <<"mqtt:bar">>
+            ]
+        },
+        emqx:get_raw_config([rule_engine, rules, Id])
+    ),
+    ok = emqx_rule_engine:ensure_action_removed(Id, #{function => GetSelectedData}),
+    ?assertMatch(
+        #{
+            <<"actions">> := [
+                #{<<"function">> := <<"republish">>},
+                <<"mqtt:bar">>
+            ]
+        },
+        emqx:get_raw_config([rule_engine, rules, Id])
+    ),
+    emqx:remove_config([rule_engine, rules, Id]).
+
 %%------------------------------------------------------------------------------
 %% Test cases for rule runtime
 %%------------------------------------------------------------------------------
@@ -473,6 +583,165 @@ t_events(_Config) ->
     ct:pal("====== verify $events/client_connack"),
     client_connack_failed(),
     ok.
+
+t_event_client_disconnected_normal(_Config) ->
+    SQL =
+        "select * "
+        "from \"$events/client_disconnected\" ",
+    RepubT = <<"repub/to/disconnected/normal">>,
+
+    {ok, TopicRule} = emqx_rule_engine:create_rule(
+        #{
+            sql => SQL,
+            id => ?TMP_RULEID,
+            actions => [republish_action(RepubT, <<>>)]
+        }
+    ),
+
+    {ok, Client} = emqtt:start_link([{clientid, <<"get_repub_client">>}, {username, <<"emqx0">>}]),
+    {ok, _} = emqtt:connect(Client),
+    {ok, _, _} = emqtt:subscribe(Client, RepubT, 0),
+    ct:sleep(200),
+    {ok, Client1} = emqtt:start_link([{clientid, <<"emqx">>}, {username, <<"emqx">>}]),
+    {ok, _} = emqtt:connect(Client1),
+    emqtt:disconnect(Client1),
+
+    receive
+        {publish, #{topic := T, payload := Payload}} ->
+            ?assertEqual(RepubT, T),
+            ?assertMatch(#{<<"reason">> := <<"normal">>}, emqx_json:decode(Payload, [return_maps]))
+    after 1000 ->
+        ct:fail(wait_for_repub_disconnected_normal)
+    end,
+    emqtt:stop(Client),
+
+    delete_rule(TopicRule).
+
+t_event_client_disconnected_kicked(_Config) ->
+    SQL =
+        "select * "
+        "from \"$events/client_disconnected\" ",
+    RepubT = <<"repub/to/disconnected/kicked">>,
+
+    {ok, TopicRule} = emqx_rule_engine:create_rule(
+        #{
+            sql => SQL,
+            id => ?TMP_RULEID,
+            actions => [republish_action(RepubT, <<>>)]
+        }
+    ),
+
+    {ok, Client} = emqtt:start_link([{clientid, <<"get_repub_client">>}, {username, <<"emqx0">>}]),
+    {ok, _} = emqtt:connect(Client),
+    {ok, _, _} = emqtt:subscribe(Client, RepubT, 0),
+    ct:sleep(200),
+
+    {ok, Client1} = emqtt:start_link([{clientid, <<"emqx">>}, {username, <<"emqx">>}]),
+    {ok, _} = emqtt:connect(Client1),
+    %% the process will receive {'EXIT',{shutdown,tcp_closed}}
+    unlink(Client1),
+
+    emqx_cm:kick_session(<<"emqx">>),
+
+    receive
+        {publish, #{topic := T, payload := Payload}} ->
+            ?assertEqual(RepubT, T),
+            ?assertMatch(#{<<"reason">> := <<"kicked">>}, emqx_json:decode(Payload, [return_maps]))
+    after 1000 ->
+        ct:fail(wait_for_repub_disconnected_kicked)
+    end,
+
+    emqtt:stop(Client),
+    delete_rule(TopicRule).
+
+t_event_client_disconnected_discarded(_Config) ->
+    SQL =
+        "select * "
+        "from \"$events/client_disconnected\" ",
+    RepubT = <<"repub/to/disconnected/discarded">>,
+
+    {ok, TopicRule} = emqx_rule_engine:create_rule(
+        #{
+            sql => SQL,
+            id => ?TMP_RULEID,
+            actions => [republish_action(RepubT, <<>>)]
+        }
+    ),
+
+    {ok, Client} = emqtt:start_link([{clientid, <<"get_repub_client">>}, {username, <<"emqx0">>}]),
+    {ok, _} = emqtt:connect(Client),
+    {ok, _, _} = emqtt:subscribe(Client, RepubT, 0),
+    ct:sleep(200),
+
+    {ok, Client1} = emqtt:start_link([{clientid, <<"emqx">>}, {username, <<"emqx">>}]),
+    {ok, _} = emqtt:connect(Client1),
+    %% the process will receive {'EXIT',{shutdown,tcp_closed}}
+    unlink(Client1),
+
+    {ok, Client2} = emqtt:start_link([
+        {clientid, <<"emqx">>}, {username, <<"emqx">>}, {clean_start, true}
+    ]),
+    {ok, _} = emqtt:connect(Client2),
+
+    receive
+        {publish, #{topic := T, payload := Payload}} ->
+            ?assertEqual(RepubT, T),
+            ?assertMatch(
+                #{<<"reason">> := <<"discarded">>}, emqx_json:decode(Payload, [return_maps])
+            )
+    after 1000 ->
+        ct:fail(wait_for_repub_disconnected_discarded)
+    end,
+    emqtt:stop(Client),
+    emqtt:stop(Client2),
+
+    delete_rule(TopicRule).
+
+t_event_client_disconnected_takenover(_Config) ->
+    SQL =
+        "select * "
+        "from \"$events/client_disconnected\" ",
+    RepubT = <<"repub/to/disconnected/takenover">>,
+
+    {ok, TopicRule} = emqx_rule_engine:create_rule(
+        #{
+            sql => SQL,
+            id => ?TMP_RULEID,
+            actions => [republish_action(RepubT, <<>>)]
+        }
+    ),
+
+    {ok, ClientRecv} = emqtt:start_link([
+        {clientid, <<"get_repub_client">>}, {username, <<"emqx0">>}
+    ]),
+    {ok, _} = emqtt:connect(ClientRecv),
+    {ok, _, _} = emqtt:subscribe(ClientRecv, RepubT, 0),
+    ct:sleep(200),
+
+    {ok, Client1} = emqtt:start_link([{clientid, <<"emqx">>}, {username, <<"emqx">>}]),
+    {ok, _} = emqtt:connect(Client1),
+    %% the process will receive {'EXIT',{shutdown,tcp_closed}}
+    unlink(Client1),
+
+    {ok, Client2} = emqtt:start_link([
+        {clientid, <<"emqx">>}, {username, <<"emqx">>}, {clean_start, false}
+    ]),
+    {ok, _} = emqtt:connect(Client2),
+
+    receive
+        {publish, #{topic := T, payload := Payload}} ->
+            ?assertEqual(RepubT, T),
+            ?assertMatch(
+                #{<<"reason">> := <<"takenover">>}, emqx_json:decode(Payload, [return_maps])
+            )
+    after 1000 ->
+        ct:fail(wait_for_repub_disconnected_discarded)
+    end,
+
+    emqtt:stop(ClientRecv),
+    emqtt:stop(Client2),
+
+    delete_rule(TopicRule).
 
 client_connack_failed() ->
     {ok, Client} = emqtt:start_link(
@@ -771,9 +1040,10 @@ t_sqlselect_001(_Config) ->
         )
     ).
 
-t_sqlselect_01(_Config) ->
+t_sqlselect_inject_props(_Config) ->
     SQL =
-        "SELECT json_decode(payload) as p, payload "
+        "SELECT json_decode(payload) as p, payload, "
+        "map_put('inject_key', 'inject_val', user_properties) as user_properties "
         "FROM \"t3/#\", \"t1\" "
         "WHERE p.x = 1",
     Repub = republish_action(<<"t2">>),
@@ -784,34 +1054,64 @@ t_sqlselect_01(_Config) ->
             actions => [Repub]
         }
     ),
-    {ok, Client} = emqtt:start_link([{username, <<"emqx">>}]),
+    Props = user_properties(#{<<"inject_key">> => <<"inject_val">>}),
+    {ok, Client} = emqtt:start_link([{username, <<"emqx">>}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(Client),
     {ok, _, _} = emqtt:subscribe(Client, <<"t2">>, 0),
-    emqtt:publish(Client, <<"t1">>, <<"{\"x\":1}">>, 0),
-    ct:sleep(100),
+    emqtt:publish(Client, <<"t1">>, #{}, <<"{\"x\":1}">>, [{qos, 0}]),
+    receive
+        {publish, #{topic := T, payload := Payload, properties := Props2}} ->
+            ?assertEqual(Props, Props2),
+            ?assertEqual(<<"t2">>, T),
+            ?assertEqual(<<"{\"x\":1}">>, Payload)
+    after 2000 ->
+        ct:fail(wait_for_t2)
+    end,
+    emqtt:stop(Client),
+    delete_rule(TopicRule1).
+
+t_sqlselect_01(_Config) ->
+    SQL =
+        "SELECT json_decode(payload) as p, payload "
+        "FROM \"t3/#\", \"t1\" "
+        "WHERE p.x = 1",
+    Repub = republish_action(<<"t2">>, <<"${payload}">>, <<"${pub_props.'User-Property'}">>),
+    {ok, TopicRule1} = emqx_rule_engine:create_rule(
+        #{
+            sql => SQL,
+            id => ?TMP_RULEID,
+            actions => [Repub]
+        }
+    ),
+    Props = user_properties(#{<<"mykey">> => <<"myval">>}),
+    {ok, Client} = emqtt:start_link([{username, <<"emqx">>}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(Client),
+    {ok, _, _} = emqtt:subscribe(Client, <<"t2">>, 0),
+    emqtt:publish(Client, <<"t1">>, Props, <<"{\"x\":1}">>, [{qos, 0}]),
     receive
         {publish, #{topic := T, payload := Payload}} ->
             ?assertEqual(<<"t2">>, T),
             ?assertEqual(<<"{\"x\":1}">>, Payload)
-    after 1000 ->
+    after 2000 ->
         ct:fail(wait_for_t2)
     end,
 
-    emqtt:publish(Client, <<"t1">>, <<"{\"x\":2}">>, 0),
+    emqtt:publish(Client, <<"t1">>, Props, <<"{\"x\":2}">>, [{qos, 0}]),
     receive
         {publish, #{topic := <<"t2">>, payload := _}} ->
             ct:fail(unexpected_t2)
-    after 1000 ->
+    after 2000 ->
         ok
     end,
 
-    emqtt:publish(Client, <<"t3/a">>, <<"{\"x\":1}">>, 0),
+    emqtt:publish(Client, <<"t3/a">>, Props, <<"{\"x\":1}">>, [{qos, 0}]),
     receive
-        {publish, #{topic := T3, payload := Payload3}} ->
+        {publish, #{topic := T3, payload := Payload3, properties := Props2}} ->
+            ?assertEqual(Props, Props2),
             ?assertEqual(<<"t2">>, T3),
             ?assertEqual(<<"{\"x\":1}">>, Payload3)
-    after 1000 ->
-        ct:fail(wait_for_t2)
+    after 2000 ->
+        ct:fail(wait_for_t3)
     end,
 
     emqtt:stop(Client),
@@ -879,13 +1179,12 @@ t_sqlselect_1(_Config) ->
     {ok, Client} = emqtt:start_link([{username, <<"emqx">>}]),
     {ok, _} = emqtt:connect(Client),
     {ok, _, _} = emqtt:subscribe(Client, <<"t2">>, 0),
-    ct:sleep(200),
     emqtt:publish(Client, <<"t1">>, <<"{\"x\":1,\"y\":2}">>, 0),
     receive
         {publish, #{topic := T, payload := Payload}} ->
             ?assertEqual(<<"t2">>, T),
             ?assertEqual(<<"{\"x\":1,\"y\":2}">>, Payload)
-    after 1000 ->
+    after 2000 ->
         ct:fail(wait_for_t2)
     end,
 
@@ -948,14 +1247,13 @@ t_sqlselect_3(_Config) ->
     {ok, Client} = emqtt:start_link([{clientid, <<"emqx0">>}, {username, <<"emqx0">>}]),
     {ok, _} = emqtt:connect(Client),
     {ok, _, _} = emqtt:subscribe(Client, <<"t2">>, 0),
-    ct:sleep(200),
     {ok, Client1} = emqtt:start_link([{clientid, <<"c_emqx1">>}, {username, <<"emqx1">>}]),
     {ok, _} = emqtt:connect(Client1),
     receive
         {publish, #{topic := T, payload := Payload}} ->
             ?assertEqual(<<"t2">>, T),
             ?assertEqual(<<"clientid=c_emqx1">>, Payload)
-    after 1000 ->
+    after 2000 ->
         ct:fail(wait_for_t2)
     end,
 
@@ -968,6 +1266,82 @@ t_sqlselect_3(_Config) ->
     end,
 
     emqtt:stop(Client),
+    delete_rule(TopicRule).
+
+t_sqlselect_message_publish_event_keep_original_props_1(_Config) ->
+    %% republish the client.connected msg
+    Topic = <<"foo/bar/1">>,
+    SQL = <<
+        "SELECT clientid "
+        "FROM \"$events/message_dropped\" "
+    >>,
+
+    %"WHERE topic = \"", Topic/binary, "\"">>,
+    Repub = republish_action(
+        <<"t2">>,
+        <<"clientid=${clientid}">>,
+        <<"${pub_props.'User-Property'}">>
+    ),
+    {ok, TopicRule} = emqx_rule_engine:create_rule(
+        #{
+            sql => SQL,
+            id => ?TMP_RULEID,
+            actions => [Repub]
+        }
+    ),
+    {ok, Client1} = emqtt:start_link([{clientid, <<"sub-01">>}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(Client1),
+    {ok, _, _} = emqtt:subscribe(Client1, <<"t2">>, 1),
+    {ok, Client2} = emqtt:start_link([{clientid, <<"pub-02">>}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(Client2),
+    Props = user_properties(#{<<"mykey">> => <<"111111">>}),
+    emqtt:publish(Client2, Topic, Props, <<"{\"x\":1}">>, [{qos, 1}]),
+    receive
+        {publish, #{topic := T, payload := Payload, properties := Props1}} ->
+            ?assertEqual(Props1, Props),
+            ?assertEqual(<<"t2">>, T),
+            ?assertEqual(<<"clientid=pub-02">>, Payload)
+    after 2000 ->
+        ct:fail(wait_for_t2)
+    end,
+    emqtt:stop(Client2),
+    emqtt:stop(Client1),
+    delete_rule(TopicRule).
+
+t_sqlselect_message_publish_event_keep_original_props_2(_Config) ->
+    %% republish the client.connected msg
+    Topic = <<"foo/bar/1">>,
+    SQL = <<
+        "SELECT clientid, pub_props.'User-Property' as user_properties "
+        "FROM \"$events/message_dropped\" "
+    >>,
+
+    %"WHERE topic = \"", Topic/binary, "\"">>,
+    Repub = republish_action(<<"t2">>, <<"clientid=${clientid}">>),
+    {ok, TopicRule} = emqx_rule_engine:create_rule(
+        #{
+            sql => SQL,
+            id => ?TMP_RULEID,
+            actions => [Repub]
+        }
+    ),
+    {ok, Client1} = emqtt:start_link([{clientid, <<"sub-01">>}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(Client1),
+    {ok, _, _} = emqtt:subscribe(Client1, <<"t2">>, 1),
+    {ok, Client2} = emqtt:start_link([{clientid, <<"pub-02">>}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(Client2),
+    Props = user_properties(#{<<"mykey">> => <<"222222222222">>}),
+    emqtt:publish(Client2, Topic, Props, <<"{\"x\":1}">>, [{qos, 1}]),
+    receive
+        {publish, #{topic := T, payload := Payload, properties := Props1}} ->
+            ?assertEqual(Props1, Props),
+            ?assertEqual(<<"t2">>, T),
+            ?assertEqual(<<"clientid=pub-02">>, Payload)
+    after 2000 ->
+        ct:fail(wait_for_t2)
+    end,
+    emqtt:stop(Client2),
+    emqtt:stop(Client1),
     delete_rule(TopicRule).
 
 t_sqlparse_event_1(_Config) ->
@@ -2315,10 +2689,20 @@ t_get_basic_usage_info_1(_Config) ->
 
 republish_action(Topic) ->
     republish_action(Topic, <<"${payload}">>).
+
 republish_action(Topic, Payload) ->
+    republish_action(Topic, Payload, <<"${user_properties}">>).
+
+republish_action(Topic, Payload, UserProperties) ->
     #{
         function => republish,
-        args => #{payload => Payload, topic => Topic, qos => 0, retain => false}
+        args => #{
+            payload => Payload,
+            topic => Topic,
+            qos => 0,
+            retain => false,
+            user_properties => UserProperties
+        }
     }.
 
 make_simple_rule_with_ts(RuleId, Ts) when is_binary(RuleId) ->
@@ -2703,6 +3087,9 @@ verify_ipaddr(IPAddrS) ->
 
 init_events_counters() ->
     ets:new(events_record_tab, [named_table, bag, public]).
+
+user_properties(PairsMap) ->
+    #{'User-Property' => maps:to_list(PairsMap)}.
 
 %%------------------------------------------------------------------------------
 %% Start Apps

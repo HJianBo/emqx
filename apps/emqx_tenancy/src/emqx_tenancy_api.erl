@@ -18,13 +18,15 @@
 
 -behaviour(minirest_api).
 
--include_lib("hocon/include/hoconsc.hrl").
 -include("emqx_tenancy.hrl").
+-include_lib("hocon/include/hoconsc.hrl").
 
 -export([api_spec/0, fields/1, paths/0, schema/1, namespace/0]).
 -export([tenants/2, tenant_with_name/2]).
 -export([validate_id/1]).
--export([query/4]).
+
+%% query
+-export([qs2ms/2, run_fuzzy_filter/2]).
 
 -define(TAGS, [<<"Tenants">>]).
 -define(NOT_FOUND_RESPONSE, #{code => 'NOT_FOUND', message => <<"Name NOT FOUND">>}).
@@ -277,7 +279,16 @@ validate_id(Sni) ->
     end.
 
 tenants(get, #{query_string := Qs}) ->
-    case emqx_mgmt_api:node_query(node(), Qs, ?TENANCY, ?QS_SCHEMA, ?QUERY_FUN) of
+    case
+        emqx_mgmt_api:node_query(
+            node(),
+            ?TENANCY,
+            Qs,
+            ?QS_SCHEMA,
+            fun ?MODULE:qs2ms/2,
+            fun emqx_tenancy:format/1
+        )
+    of
         {error, page_limit_invalid} ->
             {400, #{code => <<"INVALID_PARAMETER">>, message => <<"page_limit_invalid">>}};
         Response ->
@@ -311,22 +322,15 @@ tenant_with_name(put, #{bindings := #{id := Id}, body := Body}) ->
         {error, not_found} -> {404, ?NOT_FOUND_RESPONSE}
     end.
 
-query(Tab, {Qs, []}, Continuation, Limit) ->
-    emqx_mgmt_api:select_table_with_count(
-        Tab,
-        qs2ms(Qs),
-        Continuation,
-        Limit,
-        fun emqx_tenancy:format/1
-    );
-query(Tab, {Qs, Fuzzy}, Continuation, Limit) ->
-    emqx_mgmt_api:select_table_with_count(
-        Tab,
-        {qs2ms(Qs), fuzzy_filter_fun(Fuzzy)},
-        Continuation,
-        Limit,
-        fun emqx_tenancy:format/1
-    ).
+%%--------------------------------------------------------------------
+%% QueryString to Match Spec
+
+-spec qs2ms(atom(), {list(), list()}) -> emqx_mgmt_api:match_spec_and_filter().
+qs2ms(_Tab, {Qs, Fuzzy}) ->
+    #{
+        match_spec => qs2ms(Qs),
+        fuzzy_fun => fuzzy_filter_fun(Fuzzy)
+    }.
 
 qs2ms(Qs) ->
     {MatchHead, Cond} = qs2ms(Qs, 2, {#tenant{_ = '_'}, []}),
@@ -354,13 +358,13 @@ put_cond({_, Op1, V1, Op2, V2}, Holder, Cond) ->
         | Cond
     ].
 
+%%--------------------------------------------------------------------
+%% Match funcs
+
+fuzzy_filter_fun([]) ->
+    undefined;
 fuzzy_filter_fun(Fuzzy) ->
-    fun(MsRaws) when is_list(MsRaws) ->
-        lists:filter(
-            fun(E) -> run_fuzzy_filter(E, Fuzzy) end,
-            MsRaws
-        )
-    end.
+    {fun ?MODULE:run_fuzzy_filter/2, [Fuzzy]}.
 
 run_fuzzy_filter(_, []) ->
     true;

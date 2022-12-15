@@ -34,7 +34,7 @@
     topic/2
 ]).
 
--export([query/4]).
+-export([qs2ms/2, format/1, run_fuzzy_filter/2]).
 
 -define(TOPIC_NOT_FOUND, 'TOPIC_NOT_FOUND').
 
@@ -119,7 +119,12 @@ topic(get, #{bindings := Bindings} = Req) ->
 do_list(Params, TenantId) ->
     case
         emqx_mgmt_api:node_query(
-            node(), Params, emqx_route, ?TOPICS_QUERY_SCHEMA, {?MODULE, query}
+            node(),
+            emqx_route,
+            Params,
+            ?TOPICS_QUERY_SCHEMA,
+            fun ?MODULE:qs2ms/2,
+            fun ?MODULE:format/1
         )
     of
         {error, page_limit_invalid} ->
@@ -160,27 +165,24 @@ trans_topic(Params, TenantId) ->
         WarpTopic -> Params#{<<"match_topic">> => WarpTopic}
     end.
 
-query(Tab, {Qs, Fuzzy}, Continuation, Limit) ->
-    Ms = qs2ms(Qs, [{{route, '_', '_'}, [], ['$_']}]),
-    FuzzyFilterFun = fuzzy_filter_fun(Fuzzy),
-    emqx_mgmt_api:select_table_with_count(
-        Tab, {Ms, FuzzyFilterFun}, Continuation, Limit, fun format/1
-    ).
+-spec qs2ms(atom(), {list(), list()}) -> emqx_mgmt_api:match_spec_and_filter().
+qs2ms(_Tab, {Qs, Fuzzy}) ->
+    #{
+        match_spec => gen_match_spec(Qs, [{{route, '_', '_'}, [], ['$_']}]),
+        fuzzy_fun => fuzzy_filter_fun(Fuzzy)
+    }.
 
-qs2ms([], Res) ->
+gen_match_spec([], Res) ->
     Res;
-qs2ms([{topic, '=:=', T} | Qs], [{{route, _, N}, [], ['$_']}]) ->
-    qs2ms(Qs, [{{route, T, N}, [], ['$_']}]);
-qs2ms([{node, '=:=', N} | Qs], [{{route, T, _}, [], ['$_']}]) ->
-    qs2ms(Qs, [{{route, T, N}, [], ['$_']}]).
+gen_match_spec([{topic, '=:=', T} | Qs], [{{route, _, N}, [], ['$_']}]) ->
+    gen_match_spec(Qs, [{{route, T, N}, [], ['$_']}]);
+gen_match_spec([{node, '=:=', N} | Qs], [{{route, T, _}, [], ['$_']}]) ->
+    gen_match_spec(Qs, [{{route, T, N}, [], ['$_']}]).
 
+fuzzy_filter_fun([]) ->
+    undefined;
 fuzzy_filter_fun(Fuzzy) ->
-    fun(MsRaws) when is_list(MsRaws) ->
-        lists:filter(
-            fun(E) -> run_fuzzy_filter(E, Fuzzy) end,
-            MsRaws
-        )
-    end.
+    {fun ?MODULE:run_fuzzy_filter/2, [Fuzzy]}.
 
 run_fuzzy_filter(_, []) ->
     true;

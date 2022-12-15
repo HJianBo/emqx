@@ -153,7 +153,7 @@ tenant_id_headers(Tenant) ->
 uri() -> uri([]).
 uri(Parts) when is_list(Parts) ->
     NParts = [E || E <- Parts],
-    ?HOST ++ filename:join([?BASE_PATH, ?API_VERSION | NParts]).
+    ?HOST ++ to_list(filename:join([?BASE_PATH, ?API_VERSION | NParts])).
 
 auth_header(Username) ->
     Password = <<"public">>,

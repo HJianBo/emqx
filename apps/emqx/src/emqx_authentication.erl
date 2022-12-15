@@ -29,9 +29,13 @@
 -include_lib("stdlib/include/ms_transform.hrl").
 
 -define(CONF_ROOT, ?EMQX_AUTHENTICATION_CONFIG_ROOT_NAME_ATOM).
+-define(IS_UNDEFINED(X), (X =:= undefined orelse X =:= <<>>)).
 
 %% The authentication entrypoint.
--export([authenticate/2]).
+-export([
+    pre_hook_authenticate/1,
+    authenticate/2
+]).
 
 %% Authenticator manager process start/stop
 -export([
@@ -236,39 +240,40 @@ when
 %%------------------------------------------------------------------------------
 %% Authenticate
 %%------------------------------------------------------------------------------
+-spec pre_hook_authenticate(emqx_types:clientinfo()) ->
+    ok | continue | {error, not_authorized}.
+pre_hook_authenticate(#{enable_authn := false}) ->
+    ?TRACE_RESULT("authentication_result", ok, enable_authn_false);
+pre_hook_authenticate(#{enable_authn := quick_deny_anonymous} = Credential) ->
+    case maps:get(username, Credential, undefined) of
+        U when ?IS_UNDEFINED(U) ->
+            ?TRACE_RESULT(
+                "authentication_result", {error, not_authorized}, enable_authn_false
+            );
+        _ ->
+            continue
+    end;
+pre_hook_authenticate(_) ->
+    continue.
 
-authenticate(#{enable_authn := false}, _AuthResult) ->
-    inc_authenticate_metric('authentication.success.anonymous'),
-    ?TRACE_RESULT("authentication_result", ignore, enable_authn_false);
 authenticate(
     #{listener := Listener, protocol := Protocol, clientid := GroupedClientId} = Credential,
-    _AuthResult
+    AuthResult
 ) ->
     case get_authenticators(Listener, global_chain(Protocol)) of
         {ok, ChainName, Authenticators} ->
             case get_enabled(Authenticators) of
                 [] ->
-                    inc_authenticate_metric('authentication.success.anonymous'),
-                    ?TRACE_RESULT("authentication_result", ignore, empty_chain);
+                    ?TRACE_RESULT("authentication_result", AuthResult, empty_chain);
                 NAuthenticators ->
                     ClientId = emqx_clientid:without_tenant(GroupedClientId),
                     Result = do_authenticate(ChainName, NAuthenticators, Credential#{
                         clientid => ClientId
                     }),
-
-                    case Result of
-                        {stop, {ok, _}} ->
-                            inc_authenticate_metric('authentication.success');
-                        {stop, {error, _}} ->
-                            inc_authenticate_metric('authentication.failure');
-                        _ ->
-                            ok
-                    end,
                     ?TRACE_RESULT("authentication_result", Result, chain_result)
             end;
         none ->
-            inc_authenticate_metric('authentication.success.anonymous'),
-            ?TRACE_RESULT("authentication_result", ignore, no_chain)
+            ?TRACE_RESULT("authentication_result", AuthResult, no_chain)
     end.
 
 get_authenticators(Listener, Global) ->
@@ -667,7 +672,7 @@ handle_create_authenticator(Chain, Config, Providers) ->
     end.
 
 do_authenticate(_ChainName, [], _) ->
-    {stop, {error, not_authorized}};
+    {ok, {error, not_authorized}};
 do_authenticate(
     ChainName, [#authenticator{id = ID} = Authenticator | More], Credential
 ) ->
@@ -691,7 +696,7 @@ do_authenticate(
                 _ ->
                     ok
             end,
-            {stop, Result}
+            {ok, Result}
     catch
         Class:Reason:Stacktrace ->
             ?TRACE_AUTHN(warning, "authenticator_error", #{
@@ -965,12 +970,6 @@ to_list(M) when is_map(M) -> [M];
 to_list(L) when is_list(L) -> L.
 
 call(Call) -> gen_server:call(?MODULE, Call, infinity).
-
-inc_authenticate_metric('authentication.success.anonymous' = Metric) ->
-    emqx_metrics:inc(Metric),
-    emqx_metrics:inc('authentication.success');
-inc_authenticate_metric(Metric) ->
-    emqx_metrics:inc(Metric).
 
 with_acquire_quota(Tenant, Fun) ->
     case emqx_hooks:run_fold('quota.authn_users', [acquire, Tenant], allow) of

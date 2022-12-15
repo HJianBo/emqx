@@ -32,8 +32,9 @@
 -export([subscriptions/2]).
 
 -export([
-    query/4,
-    format/1
+    qs2ms/2,
+    run_fuzzy_filter/3,
+    format/2
 ]).
 
 -define(SUBS_QTABLE, emqx_suboption).
@@ -47,8 +48,6 @@
     {<<"qos">>, integer},
     {<<"match_topic">>, binary}
 ]).
-
--define(QUERY_FUN, {?MODULE, query}).
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{check_schema => true}).
@@ -64,7 +63,11 @@ schema("/subscriptions") ->
             tags => [<<"Subscriptions">>],
             parameters => parameters(),
             responses => #{
-                200 => hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, subscription)), #{})
+                200 => hoconsc:mk(hoconsc:array(hoconsc:ref(?MODULE, subscription)), #{}),
+                400 => emqx_dashboard_swagger:error_codes(
+                    ['INVALID_PARAMETER'], <<"Invalid parameter">>
+                ),
+                500 => emqx_dashboard_swagger:error_codes(['NODE_DOWN'], <<"Bad RPC">>)
             }
         }
     }.
@@ -142,20 +145,22 @@ subscriptions(get, #{query_string := QString0} = Req) ->
         case maps:get(<<"node">>, QString, undefined) of
             undefined ->
                 emqx_mgmt_api:cluster_query(
-                    QString,
                     ?SUBS_QTABLE,
+                    QString,
                     ?SUBS_QSCHEMA,
-                    ?QUERY_FUN
+                    fun ?MODULE:qs2ms/2,
+                    fun ?MODULE:format/2
                 );
             Node0 ->
                 case emqx_misc:safe_to_existing_atom(Node0) of
                     {ok, Node1} ->
                         emqx_mgmt_api:node_query(
                             Node1,
-                            QString,
                             ?SUBS_QTABLE,
+                            QString,
                             ?SUBS_QSCHEMA,
-                            ?QUERY_FUN
+                            fun ?MODULE:qs2ms/2,
+                            fun ?MODULE:format/2
                         );
                     {error, _} ->
                         {error, Node0, {badrpc, <<"invalid node">>}}
@@ -177,22 +182,19 @@ set_tenant_id(Req, QString) ->
         TenantId -> maps:put(<<"tenant_id">>, TenantId, QString)
     end.
 
-format(Items) when is_list(Items) ->
-    [format(Item) || Item <- Items];
-format({{Subscriber, Topic}, Options}) ->
-    format({Subscriber, Topic, Options});
-format({_Subscriber, Topic, Options}) ->
+format(WhichNode, {{_Subscriber, Topic}, Options}) ->
     SubId = maps:get(subid, Options),
     maps:merge(
         #{
             topic => get_topic(Topic, SubId, Options),
             clientid => emqx_clientid:without_tenant(SubId),
-            node => node()
+            node => WhichNode
         },
         maps:with([qos, nl, rap, rh], Options)
     ).
 
 get_topic(Topic0, {TenantId, ClientId}, Options) ->
+    %% FIXME:
     Prefix0 = emqx_config:get([tenant, topic_prefix], <<"">>),
     Prefix = emqx_mountpoint:replvar(Prefix0, #{tenant_id => TenantId}),
     PrefixLen = erlang:byte_size(Prefix),
@@ -210,69 +212,32 @@ get_topic(Topic, _, _) ->
     Topic.
 
 %%--------------------------------------------------------------------
-%% Query Function
+%% QueryString to MatchSpec
 %%--------------------------------------------------------------------
 
-query(Tab, {Qs, []}, Continuation, Limit) ->
+-spec qs2ms(atom(), {list(), list()}) -> emqx_mgmt_api:match_spec_and_filter().
+qs2ms(_Tab, {Qs, Fuzzy}) ->
     Tenant = get_tenant(Qs),
-    Ms = qs2ms(Qs, Tenant),
-    emqx_mgmt_api:select_table_with_count(
-        Tab,
-        Ms,
-        Continuation,
-        Limit,
-        fun format/1
-    );
-query(Tab, {Qs, Fuzzy}, Continuation, Limit) ->
-    Tenant = get_tenant(Qs),
-    Ms = qs2ms(Qs, Tenant),
-    FuzzyFilterFun = fuzzy_filter_fun(Fuzzy, Tenant),
-    emqx_mgmt_api:select_table_with_count(
-        Tab,
-        {Ms, FuzzyFilterFun},
-        Continuation,
-        Limit,
-        fun format/1
-    ).
+    #{match_spec => gen_match_spec(Qs, Tenant), fuzzy_fun => fuzzy_filter_fun(Fuzzy, Tenant)}.
 
 get_tenant(Qs) ->
     case lists:keyfind(tenant_id, 1, Qs) of
         false ->
             {undefined, undefined};
         {_, '=:=', TenantId} ->
+            %% FIXME:
             Prefix0 = emqx_config:get([tenant, topic_prefix], <<"">>),
             {TenantId, emqx_mountpoint:replvar(Prefix0, #{tenant_id => TenantId})}
     end.
 
-fuzzy_filter_fun(Fuzzy, Tenant) ->
-    fun(MsRaws) when is_list(MsRaws) ->
-        lists:filter(
-            fun(E) -> run_fuzzy_filter(E, Fuzzy, Tenant) end,
-            MsRaws
-        )
-    end.
+gen_match_spec(Qs, Tenant) ->
+    MtchHead = gen_match_spec(Qs, {{'_', '_'}, #{}}, Tenant),
+    [{MtchHead, [], ['$_']}].
 
-run_fuzzy_filter(_, [], _) ->
-    true;
-run_fuzzy_filter(
-    E = {{_, Topic}, _}, [{topic, match, TopicFilter} | Fuzzy], {undefined, _} = Tenant
-) ->
-    emqx_topic:match(Topic, TopicFilter) andalso run_fuzzy_filter(E, Fuzzy, Tenant);
-run_fuzzy_filter(E = {{_, Topic}, _}, [{topic, match, TopicFilter} | Fuzzy], {_, Prefix}) ->
-    emqx_topic:match(Topic, <<Prefix/binary, TopicFilter/binary>>) andalso
-        run_fuzzy_filter(E, Fuzzy, Prefix).
-
-%%--------------------------------------------------------------------
-%% Query String to Match Spec
-
-qs2ms(Qs, Tenant) ->
-    MatchHead = qs2ms(Qs, {{'_', '_'}, #{}}, Tenant),
-    [{MatchHead, [], ['$_']}].
-
-qs2ms([], MatchHead, _) ->
-    MatchHead;
-qs2ms([{Key, '=:=', Value} | More], MatchHead, Tenant) ->
-    qs2ms(More, update_ms(Key, Value, MatchHead, Tenant), Tenant).
+gen_match_spec([], MtchHead, _) ->
+    MtchHead;
+gen_match_spec([{Key, '=:=', Value} | More], MtchHead, Tenant) ->
+    gen_match_spec(More, update_ms(Key, Value, MtchHead, Tenant), Tenant).
 
 update_ms(tenant_id, X, {{Pid, Topic}, Opts} = Ms, _) ->
     case maps:find(subid, Opts) of
@@ -291,3 +256,18 @@ update_ms(share_group, X, {{Pid, Topic}, Opts}, _) ->
     {{Pid, Topic}, Opts#{share => X}};
 update_ms(qos, X, {{Pid, Topic}, Opts}, _) ->
     {{Pid, Topic}, Opts#{qos => X}}.
+
+fuzzy_filter_fun([], _) ->
+    undefined;
+fuzzy_filter_fun(Fuzzy, Tenant) ->
+    {fun ?MODULE:run_fuzzy_filter/3, [Fuzzy, Tenant]}.
+
+run_fuzzy_filter(_, [], _) ->
+    true;
+run_fuzzy_filter(
+    E = {{_, Topic}, _}, [{topic, match, TopicFilter} | Fuzzy], {undefined, _} = Tenant
+) ->
+    emqx_topic:match(Topic, TopicFilter) andalso run_fuzzy_filter(E, Fuzzy, Tenant);
+run_fuzzy_filter(E = {{_, Topic}, _}, [{topic, match, TopicFilter} | Fuzzy], {_, Prefix}) ->
+    emqx_topic:match(Topic, <<Prefix/binary, TopicFilter/binary>>) andalso
+        run_fuzzy_filter(E, Fuzzy, Prefix).

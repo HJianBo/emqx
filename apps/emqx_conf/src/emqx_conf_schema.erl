@@ -60,7 +60,6 @@
     emqx_exhook_schema,
     emqx_psk_schema,
     emqx_limiter_schema,
-    emqx_connector_schema,
     emqx_slow_subs_schema,
     emqx_tenancy_schema
 ]).
@@ -469,7 +468,7 @@ fields("node") ->
             )},
         {"global_gc_interval",
             sc(
-                emqx_schema:duration(),
+                hoconsc:union([disabled, emqx_schema:duration()]),
                 #{
                     mapping => "emqx_machine.global_gc_interval",
                     default => "15m",

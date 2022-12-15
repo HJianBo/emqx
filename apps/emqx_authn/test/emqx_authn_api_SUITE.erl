@@ -79,6 +79,9 @@ normal_client_fn([listeners, tcp, _Name]) ->
 end_per_group(_Group, _Config) ->
     ok.
 
+init_per_testcase(t_authenticator_fail, Config) ->
+    meck:expect(emqx_authn_proto_v1, lookup_from_all_nodes, 3, [{error, {exception, badarg}}]),
+    init_per_testcase(default, Config);
 init_per_testcase(_, Config) ->
     {ok, _} = emqx_cluster_rpc:start_link(node(), emqx_cluster_rpc, 1000),
     emqx_authn_test_lib:delete_authenticators(
@@ -92,6 +95,12 @@ init_per_testcase(_, Config) ->
     ),
 
     {atomic, ok} = mria:clear_table(emqx_authn_mnesia),
+    Config.
+
+end_per_testcase(t_authenticator_fail, Config) ->
+    meck:unload(emqx_authn_proto_v1),
+    Config;
+end_per_testcase(_, Config) ->
     Config.
 
 init_per_suite(Config) ->
@@ -130,6 +139,21 @@ t_authenticators(_) ->
 t_authenticator(_) ->
     test_authenticator([]).
 
+t_authenticator_fail(_) ->
+    ValidConfig0 = emqx_authn_test_lib:http_example(),
+    {ok, 200, _} = request(
+        post,
+        uri([?CONF_NS]),
+        ValidConfig0
+    ),
+    ?assertMatch(
+        {ok, 500, _},
+        request(
+            get,
+            uri([?CONF_NS, "password_based:http", "status"])
+        )
+    ).
+
 t_authenticator_users(Config) ->
     ClientFn = proplists:get_value(client_fn, Config),
     test_authenticator_users([], ClientFn).
@@ -137,8 +161,8 @@ t_authenticator_users(Config) ->
 t_authenticator_user(_) ->
     test_authenticator_user([]).
 
-t_authenticator_move(_) ->
-    test_authenticator_move([]).
+t_authenticator_position(_) ->
+    test_authenticator_position([]).
 
 t_authenticator_import_users(_) ->
     test_authenticator_import_users([]).
@@ -156,8 +180,8 @@ t_listener_authenticator_users(Config) ->
 t_listener_authenticator_user(_) ->
     test_authenticator_user(["listeners", ?TCP_DEFAULT]).
 
-t_listener_authenticator_move(_) ->
-    test_authenticator_move(["listeners", ?TCP_DEFAULT]).
+t_listener_authenticator_position(_) ->
+    test_authenticator_position(["listeners", ?TCP_DEFAULT]).
 
 t_listener_authenticator_import_users(_) ->
     test_authenticator_import_users(["listeners", ?TCP_DEFAULT]).
@@ -289,6 +313,15 @@ test_authenticator(PathPrefix) ->
         <<"connected">>,
         LookFun([<<"status">>])
     ),
+
+    ?assertMatch(
+        {ok, 404, _},
+        request(
+            get,
+            uri(PathPrefix ++ [?CONF_NS, "unknown_auth_chain", "status"])
+        )
+    ),
+
     {ok, 404, _} = request(
         get,
         uri(PathPrefix ++ [?CONF_NS, "password_based:redis"])
@@ -542,7 +575,7 @@ test_authenticator_user(PathPrefix) ->
     {ok, 404, _} = request(delete, UsersUri ++ "/u123"),
     {ok, 204, _} = request(delete, UsersUri ++ "/u1").
 
-test_authenticator_move(PathPrefix) ->
+test_authenticator_position(PathPrefix) ->
     AuthenticatorConfs = [
         emqx_authn_test_lib:http_example(),
         emqx_authn_test_lib:jwt_example(),
@@ -572,42 +605,31 @@ test_authenticator_move(PathPrefix) ->
     %% Invalid moves
 
     {ok, 400, _} = request(
-        post,
-        uri(PathPrefix ++ [?CONF_NS, "jwt", "move"]),
-        #{position => <<"up">>}
-    ),
-
-    {ok, 400, _} = request(
-        post,
-        uri(PathPrefix ++ [?CONF_NS, "jwt", "move"]),
-        #{}
+        put,
+        uri(PathPrefix ++ [?CONF_NS, "jwt", "position", "up"])
     ),
 
     {ok, 404, _} = request(
-        post,
-        uri(PathPrefix ++ [?CONF_NS, "jwt", "move"]),
-        #{position => <<"before:invalid">>}
+        put,
+        uri(PathPrefix ++ [?CONF_NS, "jwt", "position"])
     ),
 
     {ok, 404, _} = request(
-        post,
-        uri(PathPrefix ++ [?CONF_NS, "jwt", "move"]),
-        #{position => <<"before:password_based:redis">>}
+        put,
+        uri(PathPrefix ++ [?CONF_NS, "jwt", "position", "before:invalid"])
     ),
 
     {ok, 404, _} = request(
-        post,
-        uri(PathPrefix ++ [?CONF_NS, "jwt", "move"]),
-        #{position => <<"before:password_based:redis">>}
+        put,
+        uri(PathPrefix ++ [?CONF_NS, "jwt", "position", "before:password_based:redis"])
     ),
 
     %% Valid moves
 
     %% test front
     {ok, 204, _} = request(
-        post,
-        uri(PathPrefix ++ [?CONF_NS, "jwt", "move"]),
-        #{position => <<"front">>}
+        put,
+        uri(PathPrefix ++ [?CONF_NS, "jwt", "position", "front"])
     ),
 
     ?assertAuthenticatorsMatch(
@@ -621,9 +643,8 @@ test_authenticator_move(PathPrefix) ->
 
     %% test rear
     {ok, 204, _} = request(
-        post,
-        uri(PathPrefix ++ [?CONF_NS, "jwt", "move"]),
-        #{position => <<"rear">>}
+        put,
+        uri(PathPrefix ++ [?CONF_NS, "jwt", "position", "rear"])
     ),
 
     ?assertAuthenticatorsMatch(
@@ -637,9 +658,8 @@ test_authenticator_move(PathPrefix) ->
 
     %% test before
     {ok, 204, _} = request(
-        post,
-        uri(PathPrefix ++ [?CONF_NS, "jwt", "move"]),
-        #{position => <<"before:password_based:built_in_database">>}
+        put,
+        uri(PathPrefix ++ [?CONF_NS, "jwt", "position", "before:password_based:built_in_database"])
     ),
 
     ?assertAuthenticatorsMatch(
@@ -653,9 +673,16 @@ test_authenticator_move(PathPrefix) ->
 
     %% test after
     {ok, 204, _} = request(
-        post,
-        uri(PathPrefix ++ [?CONF_NS, "password_based%3Abuilt_in_database", "move"]),
-        #{position => <<"after:password_based:http">>}
+        put,
+        uri(
+            PathPrefix ++
+                [
+                    ?CONF_NS,
+                    "password_based%3Abuilt_in_database",
+                    "position",
+                    "after:password_based:http"
+                ]
+        )
     ),
 
     ?assertAuthenticatorsMatch(
