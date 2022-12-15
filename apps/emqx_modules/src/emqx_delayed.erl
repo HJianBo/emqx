@@ -23,7 +23,6 @@
 -include_lib("emqx/include/logger.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 -include_lib("emqx/include/emqx_hooks.hrl").
--include_lib("stdlib/include/ms_transform.hrl").
 
 %% Mnesia bootstrap
 -export([mnesia/1]).
@@ -32,8 +31,7 @@
 
 -export([
     start_link/0,
-    on_message_publish/1,
-    on_client_banned/1
+    on_message_publish/1
 ]).
 
 %% gen_server callbacks
@@ -46,7 +44,7 @@
     code_change/3
 ]).
 
-%% API
+%% gen_server callbacks
 -export([
     load/0,
     unload/0,
@@ -58,17 +56,19 @@
     get_delayed_message/2,
     delete_delayed_message/1,
     delete_delayed_message/2,
-    cluster_list/1,
-    cluster_query/4,
-    clean_by_clientid/1,
-    do_clean_by_clientid/1
+    cluster_list/1
+]).
+
+%% exports for query
+-export([
+    qs2ms/2,
+    format_delayed/1,
+    format_delayed/2
 ]).
 
 -export([
     post_config_update/5
 ]).
-
--export([format_delayed/1]).
 
 %% exported for `emqx_telemetry'
 -export([get_basic_usage_info/0]).
@@ -142,11 +142,6 @@ on_message_publish(
 on_message_publish(Msg) ->
     {ok, Msg}.
 
-on_client_banned(#banned{who = {clientid, ClientId}}) ->
-    clean_by_clientid(ClientId);
-on_client_banned(_) ->
-    ok.
-
 %%--------------------------------------------------------------------
 %% Start delayed publish server
 %%--------------------------------------------------------------------
@@ -175,16 +170,29 @@ list(Params) ->
     emqx_mgmt_api:paginate(?TAB, Params, ?FORMAT_FUN).
 
 cluster_list(Params) ->
-    emqx_mgmt_api:cluster_query(Params, ?TAB, [], {?MODULE, cluster_query}).
+    emqx_mgmt_api:cluster_query(
+        ?TAB,
+        Params,
+        [],
+        fun ?MODULE:qs2ms/2,
+        fun ?MODULE:format_delayed/2
+    ).
 
-cluster_query(Table, _QsSpec, Continuation, Limit) ->
-    Ms = [{'$1', [], ['$1']}],
-    emqx_mgmt_api:select_table_with_count(Table, Ms, Continuation, Limit, fun format_delayed/1).
+-spec qs2ms(atom(), {list(), list()}) -> emqx_mgmt_api:match_spec_and_filter().
+qs2ms(_Table, {_Qs, _Fuzzy}) ->
+    #{
+        match_spec => [{'$1', [], ['$1']}],
+        fuzzy_fun => undefined
+    }.
 
 format_delayed(Delayed) ->
-    format_delayed(Delayed, false).
+    format_delayed(node(), Delayed).
+
+format_delayed(WhichNode, Delayed) ->
+    format_delayed(WhichNode, Delayed, false).
 
 format_delayed(
+    WhichNode,
     #delayed_message{
         key = {ExpectTimeStamp, Id},
         delayed = Delayed,
@@ -204,7 +212,7 @@ format_delayed(
     RemainingTime = ExpectTimeStamp - ?NOW,
     Result = #{
         msgid => emqx_guid:to_hexstr(Id),
-        node => node(),
+        node => WhichNode,
         publish_at => PublishTime,
         delayed_interval => Delayed,
         delayed_remaining => RemainingTime div 1000,
@@ -231,13 +239,13 @@ get_delayed_message(Id) ->
             {error, not_found};
         Rows ->
             Message = hd(Rows),
-            {ok, format_delayed(Message, true)}
+            {ok, format_delayed(node(), Message, true)}
     end.
 
 get_delayed_message(Node, Id) when Node =:= node() ->
     get_delayed_message(Id);
 get_delayed_message(Node, Id) ->
-    emqx_delayed_proto_v2:get_delayed_message(Node, Id).
+    emqx_delayed_proto_v1:get_delayed_message(Node, Id).
 
 -spec delete_delayed_message(binary()) -> with_id_return().
 delete_delayed_message(Id) ->
@@ -252,7 +260,7 @@ delete_delayed_message(Id) ->
 delete_delayed_message(Node, Id) when Node =:= node() ->
     delete_delayed_message(Id);
 delete_delayed_message(Node, Id) ->
-    emqx_delayed_proto_v2:delete_delayed_message(Node, Id).
+    emqx_delayed_proto_v1:delete_delayed_message(Node, Id).
 
 update_config(Config) ->
     emqx_conf:update([delayed], Config, #{rawconf_with_defaults => true, override_to => cluster}).
@@ -260,15 +268,6 @@ update_config(Config) ->
 post_config_update(_KeyPath, _ConfigReq, NewConf, _OldConf, _AppEnvs) ->
     Enable = maps:get(enable, NewConf, undefined),
     load_or_unload(Enable).
-
-clean_by_clientid(ClientId) ->
-    Nodes = mria_mnesia:running_nodes(),
-    emqx_delayed_proto_v2:clean_by_clientid(Nodes, ClientId).
-
-do_clean_by_clientid(ClientId) ->
-    ets:select_delete(
-        ?TAB, ets:fun2ms(fun(#delayed_message{msg = Msg}) -> Msg#message.from =:= ClientId end)
-    ).
 
 %%--------------------------------------------------------------------
 %% gen_server callback
@@ -391,8 +390,23 @@ do_publish({Ts, _Id}, Now, Acc) when Ts > Now ->
     Acc;
 do_publish(Key = {Ts, _Id}, Now, Acc) when Ts =< Now ->
     case mnesia:dirty_read(?TAB, Key) of
-        [] -> ok;
-        [#delayed_message{msg = Msg}] -> emqx_pool:async_submit(fun emqx:publish/1, [Msg])
+        [] ->
+            ok;
+        [#delayed_message{msg = Msg}] ->
+            case emqx_banned:look_up({clientid, Msg#message.from}) of
+                [] ->
+                    emqx_pool:async_submit(fun emqx:publish/1, [Msg]);
+                _ ->
+                    ?tp(
+                        notice,
+                        ignore_delayed_message_publish,
+                        #{
+                            reason => "client is banned",
+                            clienid => Msg#message.from
+                        }
+                    ),
+                    ok
+            end
     end,
     do_publish(mnesia:dirty_next(?TAB, Key), Now, [Key | Acc]).
 
@@ -401,11 +415,9 @@ delayed_count() -> mnesia:table_info(?TAB, size).
 
 do_load_or_unload(true, State) ->
     emqx_hooks:put('message.publish', {?MODULE, on_message_publish, []}, ?HP_DELAY_PUB),
-    ok = emqx_hooks:put('client.banned', {?MODULE, on_client_banned, []}, ?HP_LOWEST),
     State;
 do_load_or_unload(false, #{publish_timer := PubTimer} = State) ->
     emqx_hooks:del('message.publish', {?MODULE, on_message_publish}),
-    ok = emqx_hooks:del('client.banned', {?MODULE, on_client_banned}),
     emqx_misc:cancel_timer(PubTimer),
     ets:delete_all_objects(?TAB),
     State#{publish_timer := undefined, publish_at := 0};

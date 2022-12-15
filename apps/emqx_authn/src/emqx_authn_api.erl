@@ -32,6 +32,7 @@
 -define(BAD_REQUEST, 'BAD_REQUEST').
 -define(NOT_FOUND, 'NOT_FOUND').
 -define(ALREADY_EXISTS, 'ALREADY_EXISTS').
+-define(INTERNAL_ERROR, 'INTERNAL_ERROR').
 
 % Swagger
 
@@ -56,8 +57,8 @@
     listener_authenticators/2,
     listener_authenticator/2,
     listener_authenticator_status/2,
-    authenticator_move/2,
-    listener_authenticator_move/2,
+    authenticator_position/2,
+    listener_authenticator_position/2,
     authenticator_users/2,
     authenticator_user/2,
     listener_authenticator_users/2,
@@ -68,7 +69,6 @@
 
 -export([
     authenticator_examples/0,
-    request_move_examples/0,
     request_user_create_examples/0,
     request_user_update_examples/0,
     response_user_examples/0,
@@ -100,14 +100,14 @@ paths() ->
         "/authentication",
         "/authentication/:id",
         "/authentication/:id/status",
-        "/authentication/:id/move",
+        "/authentication/:id/position/:position",
         "/authentication/:id/users",
         "/authentication/:id/users/:user_id",
 
         "/listeners/:listener_id/authentication",
         "/listeners/:listener_id/authentication/:id",
         "/listeners/:listener_id/authentication/:id/status",
-        "/listeners/:listener_id/authentication/:id/move",
+        "/listeners/:listener_id/authentication/:id/position/:position",
         "/listeners/:listener_id/authentication/:id/users",
         "/listeners/:listener_id/authentication/:id/users/:user_id"
     ].
@@ -116,7 +116,6 @@ roots() ->
     [
         request_user_create,
         request_user_update,
-        request_move,
         response_user,
         response_users
     ].
@@ -131,8 +130,6 @@ fields(request_user_update) ->
         {password, mk(binary(), #{required => true})},
         {is_superuser, mk(boolean(), #{default => false, required => false})}
     ];
-fields(request_move) ->
-    [{position, mk(binary(), #{required => true})}];
 fields(response_user) ->
     [
         {user_id, mk(binary(), #{required => true})},
@@ -226,7 +223,8 @@ schema("/authentication/:id/status") ->
                     hoconsc:ref(emqx_authn_schema, "metrics_status_fields"),
                     status_metrics_example()
                 ),
-                400 => error_codes([?BAD_REQUEST], <<"Bad Request">>)
+                404 => error_codes([?NOT_FOUND], <<"Not Found">>),
+                500 => error_codes([?INTERNAL_ERROR], <<"Internal Service Error">>)
             }
         }
     };
@@ -321,17 +319,13 @@ schema("/listeners/:listener_id/authentication/:id/status") ->
             }
         }
     };
-schema("/authentication/:id/move") ->
+schema("/authentication/:id/position/:position") ->
     #{
-        'operationId' => authenticator_move,
-        post => #{
+        'operationId' => authenticator_position,
+        put => #{
             tags => ?API_TAGS_GLOBAL,
-            description => ?DESC(authentication_id_move_post),
-            parameters => [param_auth_id()],
-            'requestBody' => emqx_dashboard_swagger:schema_with_examples(
-                ref(request_move),
-                request_move_examples()
-            ),
+            description => ?DESC(authentication_id_position_put),
+            parameters => [param_auth_id(), param_position()],
             responses => #{
                 204 => <<"Authenticator moved">>,
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
@@ -339,17 +333,13 @@ schema("/authentication/:id/move") ->
             }
         }
     };
-schema("/listeners/:listener_id/authentication/:id/move") ->
+schema("/listeners/:listener_id/authentication/:id/position/:position") ->
     #{
-        'operationId' => listener_authenticator_move,
-        post => #{
+        'operationId' => listener_authenticator_position,
+        put => #{
             tags => ?API_TAGS_SINGLE,
-            description => ?DESC(listeners_listener_id_authentication_id_move_post),
-            parameters => [param_listener_id(), param_auth_id()],
-            'requestBody' => emqx_dashboard_swagger:schema_with_examples(
-                ref(request_move),
-                request_move_examples()
-            ),
+            description => ?DESC(listeners_listener_id_authentication_id_position_put),
+            parameters => [param_listener_id(), param_auth_id(), param_position()],
             responses => #{
                 204 => <<"Authenticator moved">>,
                 400 => error_codes([?BAD_REQUEST], <<"Bad Request">>),
@@ -578,6 +568,17 @@ param_listener_id() ->
         })
     }.
 
+param_position() ->
+    {
+        position,
+        mk(binary(), #{
+            in => path,
+            desc => ?DESC(param_position),
+            required => true,
+            example => "before:password_based:built_in_database"
+        })
+    }.
+
 param_user_id() ->
     {
         user_id,
@@ -600,7 +601,11 @@ authenticator(delete, #{bindings := #{id := AuthenticatorID}}) ->
     delete_authenticator([authentication], ?GLOBAL, AuthenticatorID).
 
 authenticator_status(get, #{bindings := #{id := AuthenticatorID}}) ->
-    lookup_from_all_nodes(?GLOBAL, AuthenticatorID).
+    with_authenticator(
+        AuthenticatorID,
+        [authentication],
+        fun(_) -> lookup_from_all_nodes(?GLOBAL, AuthenticatorID) end
+    ).
 
 listener_authenticators(post, #{bindings := #{listener_id := ListenerID}, body := Config}) ->
     with_listener(
@@ -671,28 +676,24 @@ listener_authenticator_status(
 ) ->
     with_listener(
         ListenerID,
-        fun(_, _, ChainName) ->
-            lookup_from_all_nodes(ChainName, AuthenticatorID)
+        fun(Type, Name, ChainName) ->
+            with_authenticator(
+                AuthenticatorID,
+                [listeners, Type, Name, authentication],
+                fun(_) -> lookup_from_all_nodes(ChainName, AuthenticatorID) end
+            )
         end
     ).
 
-authenticator_move(
-    post,
-    #{
-        bindings := #{id := AuthenticatorID},
-        body := #{<<"position">> := Position}
-    }
+authenticator_position(
+    put,
+    #{bindings := #{id := AuthenticatorID, position := Position}}
 ) ->
-    move_authenticator([authentication], ?GLOBAL, AuthenticatorID, Position);
-authenticator_move(post, #{bindings := #{id := _}, body := _}) ->
-    serialize_error({missing_parameter, position}).
+    move_authenticator([authentication], ?GLOBAL, AuthenticatorID, Position).
 
-listener_authenticator_move(
-    post,
-    #{
-        bindings := #{listener_id := ListenerID, id := AuthenticatorID},
-        body := #{<<"position">> := Position}
-    }
+listener_authenticator_position(
+    put,
+    #{bindings := #{listener_id := ListenerID, id := AuthenticatorID, position := Position}}
 ) ->
     with_listener(
         ListenerID,
@@ -704,9 +705,7 @@ listener_authenticator_move(
                 Position
             )
         end
-    );
-listener_authenticator_move(post, #{bindings := #{listener_id := _, id := _}, body := _}) ->
-    serialize_error({missing_parameter, position}).
+    ).
 
 authenticator_users(post, Req = #{bindings := #{id := AuthenticatorID}, body := UserInfo}) ->
     Tenant = tenant(Req),
@@ -829,6 +828,18 @@ listener_authenticator_user(
 %% Internal functions
 %%------------------------------------------------------------------------------
 
+with_authenticator(AuthenticatorID, ConfKeyPath, Fun) ->
+    case find_authenticator_config(AuthenticatorID, ConfKeyPath) of
+        {ok, AuthenticatorConfig} ->
+            Fun(AuthenticatorConfig);
+        {error, Reason} ->
+            serialize_error(Reason)
+    end.
+
+find_authenticator_config(AuthenticatorID, ConfKeyPath) ->
+    AuthenticatorsConfig = get_raw_config_with_defaults(ConfKeyPath),
+    find_config(AuthenticatorID, AuthenticatorsConfig).
+
 with_listener(ListenerID, Fun) ->
     case find_listener(ListenerID) of
         {ok, {BType, BName}} ->
@@ -891,13 +902,13 @@ list_authenticators(ConfKeyPath) ->
     {200, NAuthenticators}.
 
 list_authenticator(_, ConfKeyPath, AuthenticatorID) ->
-    AuthenticatorsConfig = get_raw_config_with_defaults(ConfKeyPath),
-    case find_config(AuthenticatorID, AuthenticatorsConfig) of
-        {ok, AuthenticatorConfig} ->
-            {200, maps:put(id, AuthenticatorID, convert_certs(AuthenticatorConfig))};
-        {error, Reason} ->
-            serialize_error(Reason)
-    end.
+    with_authenticator(
+        AuthenticatorID,
+        ConfKeyPath,
+        fun(AuthenticatorConfig) ->
+            {200, maps:put(id, AuthenticatorID, convert_certs(AuthenticatorConfig))}
+        end
+    ).
 
 resource_provider() ->
     [
@@ -932,7 +943,8 @@ lookup_from_local_node(ChainName, AuthenticatorID) ->
 
 lookup_from_all_nodes(ChainName, AuthenticatorID) ->
     Nodes = mria_mnesia:running_nodes(),
-    case is_ok(emqx_authn_proto_v1:lookup_from_all_nodes(Nodes, ChainName, AuthenticatorID)) of
+    LookupResult = emqx_authn_proto_v1:lookup_from_all_nodes(Nodes, ChainName, AuthenticatorID),
+    case is_ok(LookupResult) of
         {ok, ResList} ->
             {StatusMap, MetricsMap, ResourceMetricsMap, ErrorMap} = make_result_map(ResList),
             AggregateStatus = aggregate_status(maps:values(StatusMap)),
@@ -956,7 +968,7 @@ lookup_from_all_nodes(ChainName, AuthenticatorID) ->
                 node_error => HelpFun(maps:map(Fun, ErrorMap), reason)
             }};
         {error, ErrL} ->
-            {400, #{
+            {500, #{
                 code => <<"INTERNAL_ERROR">>,
                 message => list_to_binary(io_lib:format("~p", [ErrL]))
             }}
@@ -1509,28 +1521,6 @@ request_user_update_examples() ->
             value => #{
                 password => <<"newsecret">>,
                 is_superuser => true
-            }
-        }
-    }.
-
-request_move_examples() ->
-    #{
-        move_to_front => #{
-            summary => <<"Move authenticator to the beginning of the chain">>,
-            value => #{
-                position => <<"front">>
-            }
-        },
-        move_to_rear => #{
-            summary => <<"Move authenticator to the end of the chain">>,
-            value => #{
-                position => <<"rear">>
-            }
-        },
-        'move_before_password_based:built_in_database' => #{
-            summary => <<"Move authenticator to the position preceding some other authenticator">>,
-            value => #{
-                position => <<"before:password_based:built_in_database">>
             }
         }
     }.

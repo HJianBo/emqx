@@ -410,7 +410,7 @@ fields("mqtt") ->
             sc(
                 range(1, 65535),
                 #{
-                    default => 65535,
+                    default => 128,
                     desc => ?DESC(mqtt_max_topic_levels)
                 }
             )},
@@ -650,14 +650,6 @@ fields("flapping_detect") ->
                 #{
                     default => "5m",
                     desc => ?DESC(flapping_detect_ban_time)
-                }
-            )},
-        {"clean_when_banned",
-            sc(
-                boolean(),
-                #{
-                    default => false,
-                    desc => ?DESC(flapping_detect_clean_when_banned)
                 }
             )}
     ];
@@ -1687,7 +1679,7 @@ base_listener(Bind) ->
             )},
         {"enable_authn",
             sc(
-                boolean(),
+                hoconsc:enum([true, false, quick_deny_anonymous]),
                 #{
                     desc => ?DESC(base_listener_enable_authn),
                     default => true
@@ -1935,6 +1927,7 @@ common_ssl_opts_schema(Defaults) ->
                     sensitive => true,
                     required => false,
                     example => <<"">>,
+                    format => <<"password">>,
                     desc => ?DESC(common_ssl_opts_schema_password)
                 }
             )},
@@ -1968,7 +1961,6 @@ common_ssl_opts_schema(Defaults) ->
     ].
 
 %% @doc Make schema for SSL listener options.
-%% When it's for ranch listener, an extra field `handshake_timeout' is added.
 -spec server_ssl_opts_schema(map(), boolean()) -> hocon_schema:field_schema().
 server_ssl_opts_schema(Defaults, IsRanchListener) ->
     D = fun(Field) -> maps:get(to_atom(Field), Defaults, undefined) end,
@@ -2007,26 +1999,23 @@ server_ssl_opts_schema(Defaults, IsRanchListener) ->
                         default => Df("client_renegotiation", true),
                         desc => ?DESC(server_ssl_opts_schema_client_renegotiation)
                     }
+                )},
+            {"handshake_timeout",
+                sc(
+                    duration(),
+                    #{
+                        default => Df("handshake_timeout", "15s"),
+                        desc => ?DESC(server_ssl_opts_schema_handshake_timeout)
+                    }
                 )}
-            | [
-                {"handshake_timeout",
-                    sc(
-                        duration(),
-                        #{
-                            default => Df("handshake_timeout", "15s"),
-                            desc => ?DESC(server_ssl_opts_schema_handshake_timeout)
-                        }
-                    )}
-             || IsRanchListener
-            ] ++
-                [
-                    {"gc_after_handshake",
-                        sc(boolean(), #{
-                            default => false,
-                            desc => ?DESC(server_ssl_opts_schema_gc_after_handshake)
-                        })}
-                 || not IsRanchListener
-                ]
+        ] ++
+        [
+            {"gc_after_handshake",
+                sc(boolean(), #{
+                    default => false,
+                    desc => ?DESC(server_ssl_opts_schema_gc_after_handshake)
+                })}
+         || not IsRanchListener
         ].
 
 %% @doc Make schema for SSL client.

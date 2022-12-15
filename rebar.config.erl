@@ -154,7 +154,8 @@ test_deps() ->
         {bbmustache, "1.10.0"},
         {meck, "0.9.2"},
         {proper, "1.4.0"},
-        {er_coap_client, {git, "https://github.com/emqx/er_coap_client", {tag, "v1.0.5"}}}
+        {er_coap_client, {git, "https://github.com/emqx/er_coap_client", {tag, "v1.0.5"}}},
+        {erl_csv, "0.2.0"}
     ].
 
 common_compile_opts(Vsn) ->
@@ -316,7 +317,7 @@ overlay_vars_edition(ce) ->
     ];
 overlay_vars_edition(ee) ->
     [
-        {emqx_schema_mod, emqx_enterprise_conf_schema},
+        {emqx_schema_mod, emqx_ee_conf_schema},
         {is_enterprise, "yes"}
     ].
 
@@ -364,6 +365,7 @@ relx_apps(ReleaseType, Edition) ->
         redbug,
         xmerl,
         {hocon, load},
+        telemetry,
         % started by emqx_machine
         {emqx, load},
         {emqx_conf, load},
@@ -415,7 +417,9 @@ is_app(Name) ->
 relx_apps_per_edition(ee) ->
     [
         emqx_license,
-        {emqx_enterprise_conf, load}
+        {emqx_ee_conf, load},
+        emqx_ee_connector,
+        emqx_ee_bridge
     ];
 relx_apps_per_edition(ce) ->
     [].
@@ -482,7 +486,7 @@ emqx_etc_overlay_per_edition(ce) ->
     ];
 emqx_etc_overlay_per_edition(ee) ->
     [
-        {"{{base_dir}}/lib/emqx_conf/etc/emqx_enterprise.conf.all", "etc/emqx_enterprise.conf"},
+        {"{{base_dir}}/lib/emqx_conf/etc/emqx-enterprise.conf.all", "etc/emqx-enterprise.conf"},
         {"{{base_dir}}/lib/emqx_conf/etc/emqx.conf.all", "etc/emqx.conf"}
     ].
 

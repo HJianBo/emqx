@@ -80,7 +80,6 @@
     <<"servers">> => <<?REDIS_SINGLE_HOST, ",127.0.0.1:6380">>,
     <<"redis_type">> => <<"cluster">>,
     <<"pool_size">> => 1,
-    <<"database">> => 0,
     <<"password">> => <<"ee">>,
     <<"auto_reconnect">> => true,
     <<"ssl">> => #{<<"enable">> => false},
@@ -103,7 +102,7 @@ groups() ->
     [].
 
 init_per_suite(Config) ->
-    ok = stop_apps([emqx_resource, emqx_connector]),
+    ok = stop_apps([emqx_resource]),
     meck:new(emqx_resource, [non_strict, passthrough, no_history, no_link]),
     meck:expect(emqx_resource, create_local, fun(_, _, _, _) -> {ok, meck_data} end),
     meck:expect(emqx_resource, health_check, fun(St) -> {ok, St} end),
@@ -120,7 +119,7 @@ init_per_suite(Config) ->
         [emqx_conf, emqx_authz, emqx_dashboard],
         fun set_special_configs/1
     ),
-    ok = start_apps([emqx_resource, emqx_connector]),
+    ok = start_apps([emqx_resource]),
     Config.
 
 end_per_suite(_Config) ->
@@ -134,7 +133,7 @@ end_per_suite(_Config) ->
     ),
     %% resource and connector should be stop first,
     %% or authz_[mysql|pgsql|redis..]_SUITE would be failed
-    ok = stop_apps([emqx_resource, emqx_connector]),
+    ok = stop_apps([emqx_resource]),
     emqx_common_test_helpers:stop_apps([emqx_dashboard, emqx_authz, emqx_conf]),
     meck:unload(emqx_resource),
     ok.
@@ -180,6 +179,12 @@ end_per_testcase(_, _Config) ->
 t_api(_) ->
     {ok, 200, Result1} = request(get, uri(["authorization", "sources"]), []),
     ?assertEqual([], get_sources(Result1)),
+
+    {ok, 404, ErrResult} = request(get, uri(["authorization", "sources", "http"]), []),
+    ?assertMatch(
+        #{<<"code">> := <<"NOT_FOUND">>, <<"message">> := <<"Not found: http">>},
+        jsx:decode(ErrResult)
+    ),
 
     [
         begin

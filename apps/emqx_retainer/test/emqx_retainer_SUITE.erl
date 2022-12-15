@@ -318,6 +318,25 @@ t_message_expiry_2(_) ->
     end,
     with_conf(ConfMod, Case).
 
+t_table_full(_) ->
+    ConfMod = fun(Conf) ->
+        Conf#{<<"backend">> => #{<<"max_retained_messages">> => <<"1">>}}
+    end,
+    Case = fun() ->
+        {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
+        {ok, _} = emqtt:connect(C1),
+        emqtt:publish(C1, <<"retained/t/1">>, <<"a">>, [{qos, 0}, {retain, true}]),
+        emqtt:publish(C1, <<"retained/t/2">>, <<"b">>, [{qos, 0}, {retain, true}]),
+
+        {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/t/1">>, [{qos, 0}, {rh, 0}]),
+        ?assertEqual(1, length(receive_messages(1))),
+        {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/t/2">>, [{qos, 0}, {rh, 0}]),
+        ?assertEqual(0, length(receive_messages(1))),
+
+        ok = emqtt:disconnect(C1)
+    end,
+    with_conf(ConfMod, Case).
+
 t_clean(_) ->
     {ok, C1} = emqtt:start_link([{clean_start, true}, {proto_ver, v5}]),
     {ok, _} = emqtt:connect(C1),
@@ -626,66 +645,6 @@ t_get_basic_usage_info(_Config) ->
     ?assertEqual(#{retained_messages => 5}, emqx_retainer:get_basic_usage_info()),
     ok.
 
-t_banned_clean(_) ->
-    ClientId1 = <<"bc1">>,
-    ClientId2 = <<"bc2">>,
-    {ok, C1} = emqtt:start_link([{clientid, ClientId1}, {clean_start, true}, {proto_ver, v5}]),
-    {ok, _} = emqtt:connect(C1),
-
-    {ok, C2} = emqtt:start_link([{clientid, ClientId2}, {clean_start, true}, {proto_ver, v5}]),
-    {ok, _} = emqtt:connect(C2),
-
-    [
-        begin
-            emqtt:publish(
-                Conn,
-                <<"bc/0/", ClientId/binary>>,
-                <<"this is a retained message 0">>,
-                [{qos, 0}, {retain, true}]
-            ),
-            emqtt:publish(
-                Conn,
-                <<"bc/1/", ClientId/binary>>,
-                <<"this is a retained message 1">>,
-                [{qos, 0}, {retain, true}]
-            )
-        end
-     || {ClientId, Conn} <- lists:zip([ClientId1, ClientId2], [C1, C2])
-    ],
-
-    emqtt:publish(
-        C2,
-        <<"bc/2/", ClientId2/binary>>,
-        <<"this is a retained message 2">>,
-        [{qos, 0}, {retain, true}]
-    ),
-
-    timer:sleep(500),
-    {ok, List} = emqx_retainer:page_read(<<"bc/+/+">>, 1, 10),
-    ?assertEqual(5, length(List)),
-
-    Now = erlang:system_time(second),
-    Who = {clientid, ClientId2},
-    emqx_banned:create(#{
-        who => Who,
-        by => <<"test">>,
-        reason => <<"test">>,
-        at => Now,
-        until => Now + 120,
-        clean => true
-    }),
-
-    timer:sleep(500),
-
-    {ok, List2} = emqx_retainer:page_read(<<"bc/#">>, 1, 10),
-    ?assertEqual(2, length(List2)),
-
-    emqx_banned:delete(Who),
-    emqx_retainer:clean(),
-    timer:sleep(500),
-    ok = emqtt:disconnect(C1),
-    ok = emqtt:disconnect(C2).
-
 %% test whether the app can start normally after disabling emqx_retainer
 %% fix: https://github.com/emqx/emqx/pull/8911
 test_disable_then_start(_Config) ->
@@ -698,6 +657,46 @@ test_disable_then_start(_Config) ->
     timer:sleep(100),
     ?assertNotEqual([], gproc_pool:active_workers(emqx_retainer_dispatcher)),
     ok.
+
+t_deliver_when_banned(_) ->
+    Client1 = <<"c1">>,
+    Client2 = <<"c2">>,
+
+    {ok, C1} = emqtt:start_link([{clientid, Client1}, {clean_start, true}, {proto_ver, v5}]),
+    {ok, _} = emqtt:connect(C1),
+
+    lists:foreach(
+        fun(I) ->
+            Topic = erlang:list_to_binary(io_lib:format("retained/~p", [I])),
+            Msg = emqx_message:make(Client2, 0, Topic, <<"this is a retained message">>),
+            Msg2 = emqx_message:set_flag(retain, Msg),
+            emqx:publish(Msg2)
+        end,
+        lists:seq(1, 3)
+    ),
+
+    Now = erlang:system_time(second),
+    Who = {clientid, Client2},
+
+    emqx_banned:create(#{
+        who => Who,
+        by => <<"test">>,
+        reason => <<"test">>,
+        at => Now,
+        until => Now + 120
+    }),
+
+    timer:sleep(100),
+    snabbkaffe:start_trace(),
+    {ok, #{}, [0]} = emqtt:subscribe(C1, <<"retained/+">>, [{qos, 0}, {rh, 0}]),
+    timer:sleep(500),
+
+    Trace = snabbkaffe:collect_trace(),
+    ?assertEqual(3, length(?of_kind(ignore_retained_message_deliver, Trace))),
+    snabbkaffe:stop(),
+    emqx_banned:delete(Who),
+    {ok, #{}, [0]} = emqtt:unsubscribe(C1, <<"retained/+">>),
+    ok = emqtt:disconnect(C1).
 
 %%--------------------------------------------------------------------
 %% Helper functions
