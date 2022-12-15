@@ -150,5 +150,6 @@
 %% Tenancy
 
 -define(NO_TENANT, <<>>).
+-define(TENANT_TOPIC_PREFIX, <<"$tenants/${tenant_id}/">>).
 
 -endif.

@@ -256,6 +256,8 @@ init(
             <<>> -> undefined;
             MP -> MP
         end,
+    TenantIdFrom = emqx_config:get_listener_conf(Type, Listener, [tenant, tenant_id_from]),
+
     ListenerId = emqx_listeners:listener_id(Type, Listener),
     ClientInfo = set_peercert_infos(
         Peercert,
@@ -275,7 +277,8 @@ init(
         },
         Zone
     ),
-    {NClientInfo, NConnInfo} = take_ws_cookie(ClientInfo, ConnInfo),
+    ConnInfo1 = ConnInfo#{tenant_id_from => TenantIdFrom},
+    {NClientInfo, NConnInfo} = take_ws_cookie(ClientInfo, ConnInfo1),
     #channel{
         conninfo = NConnInfo,
         clientinfo = NClientInfo,
@@ -1562,26 +1565,25 @@ check_connect(ConnPkt, #channel{clientinfo = #{zone := Zone}}) ->
 %% Tenant setup
 
 setup_tenant(ConnPkt, Channel = #channel{conninfo = ConnInfo}) ->
-    case emqx_config:get([tenant, tenant_id_from], none) of
+    case maps:get(tenant_id_from, ConnInfo, none) of
         none ->
             ok;
         peersni ->
-            Tenant = parse_peersni(maps:get(peersni, ConnInfo, undefined)),
-            Pipe = pipeline(
-                [
-                    fun setup_tenant_id/2,
-                    fun check_tenant_id_allowed/2,
-                    fun setup_topic_prefix/2
-                ],
-                Tenant,
-                Channel#channel.clientinfo
-            ),
-            case Pipe of
-                {ok, _, NClientInfo} ->
+            case parse_peersni(maps:get(peersni, ConnInfo, undefined)) of
+                ?NO_TENANT ->
+                    {error, ?RC_BANNED, Channel};
+                Tenant ->
+                    {ok, _, NClientInfo} =
+                        pipeline(
+                            [
+                                fun setup_tenant_id/2,
+                                fun setup_topic_prefix/2
+                            ],
+                            Tenant,
+                            Channel#channel.clientinfo
+                        ),
                     ?tp(debug, setup_tenant, #{tenant_id => Tenant}),
-                    {ok, ConnPkt, Channel#channel{clientinfo = NClientInfo}};
-                {error, ReasonCode, NClientInfo} ->
-                    {error, ReasonCode, Channel#channel{clientinfo = NClientInfo}}
+                    {ok, ConnPkt, Channel#channel{clientinfo = NClientInfo}}
             end
     end.
 
@@ -1597,19 +1599,13 @@ setup_tenant_id(Tenant, ClientInfo = #{clientid := ClientId}) ->
     },
     {ok, Tenant, NClientInfo}.
 
-check_tenant_id_allowed(Tenant, _ClientInfo) ->
-    case emqx_config:get([tenant, allow_non_tenant_access], true) of
-        false when Tenant =:= ?NO_TENANT ->
-            {error, ?RC_BANNED};
-        _ ->
-            ok
-    end.
-
 setup_topic_prefix(?NO_TENANT, ClientInfo) ->
     {ok, ?NO_TENANT, ClientInfo};
 setup_topic_prefix(Tenant, ClientInfo = #{mountpoint := MountPoint}) ->
-    Prefix0 = emqx_config:get([tenant, topic_prefix], <<"">>),
-    Prefix = emqx_mountpoint:replvar(Prefix0, #{tenant_id => Tenant}),
+    Prefix = emqx_mountpoint:replvar(
+        ?TENANT_TOPIC_PREFIX,
+        #{tenant_id => Tenant}
+    ),
     NMountPoint =
         case MountPoint of
             undefined -> Prefix;
@@ -1721,7 +1717,7 @@ check_banned(_ConnPkt, #channel{clientinfo = ClientInfo}) ->
 
 check_tenant_policy(_ConnPkt, #channel{clientinfo = ClientInfo}) ->
     %% XXX: check tenant quota, limit, etc.
-    case emqx_hooks:run_fold('quota.connections', [acquire, ClientInfo], allow) of
+    case emqx_hooks:run_fold('quota.sessions', [acquire, ClientInfo], allow) of
         allow -> ok;
         deny -> {error, ?RC_QUOTA_EXCEEDED}
     end.

@@ -61,7 +61,8 @@
     emqx_psk_schema,
     emqx_limiter_schema,
     emqx_connector_schema,
-    emqx_slow_subs_schema
+    emqx_slow_subs_schema,
+    emqx_tenancy_schema
 ]).
 
 %% root config should not have a namespace

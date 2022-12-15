@@ -403,6 +403,7 @@ sample_subscription() ->
                 {_, #{subid := {Tenant, _}, share := _}} ->
                     {Acc, maps:update_with(Tenant, fun(V) -> V + 1 end, 1, ShareAcc)};
                 {_, #{subid := {Tenant, _}}} ->
+                    %% XXX: subscription should include shared subs?
                     {maps:update_with(Tenant, fun(V) -> V + 1 end, 1, Acc), ShareAcc};
                 _ ->
                     {Acc, ShareAcc}

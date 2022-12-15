@@ -28,7 +28,7 @@
 
 -type quota_config() ::
     #{
-        max_connections := pos_integer(),
+        max_sessions := pos_integer(),
         max_authn_users := pos_integer(),
         max_authz_users := pos_integer()
         %max_subscriptions := pos_integer(),

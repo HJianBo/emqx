@@ -56,7 +56,7 @@ init([]) ->
             restart => permanent,
             shutdown => 1000,
             type => worker,
-            modules => [emqx_tenancy_metric]
+            modules => [emqx_tenancy_push]
         },
         #{
             id => emqx_tenancy_limiter_sup,
