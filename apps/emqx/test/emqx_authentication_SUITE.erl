@@ -546,6 +546,7 @@ t_combine_authn_and_callback(Config) when is_list(Config) ->
         zone => default,
         listener => ListenerID,
         protocol => mqtt,
+        clientid => <<"any">>,
         password => <<"any">>
     },
 
