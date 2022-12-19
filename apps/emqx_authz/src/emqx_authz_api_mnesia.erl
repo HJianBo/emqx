@@ -538,6 +538,7 @@ user(
     end,
     case count_new_rules_number({username, Tenant, Username}, Rules) of
         Diff when Diff =:= 0 ->
+            _ = UpdateFun(),
             {204};
         Diff when Diff < 0 ->
             with_release_quota(Tenant, Diff, UpdateFun);
@@ -590,6 +591,7 @@ client(
     end,
     case count_new_rules_number({clientid, Tenant, ClientID}, Rules) of
         Diff when Diff =:= 0 ->
+            _ = UpdateFun(),
             {204};
         Diff when Diff < 0 ->
             with_release_quota(Tenant, Diff, UpdateFun);
