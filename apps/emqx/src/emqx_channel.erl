@@ -256,7 +256,7 @@ init(
             <<>> -> undefined;
             MP -> MP
         end,
-    TenantIdFrom = emqx_config:get_listener_conf(Type, Listener, [tenant, tenant_id_from]),
+    TenantIdFrom = emqx_config:get_listener_conf(Type, Listener, [tenant, tenant_id_from], none),
 
     ListenerId = emqx_listeners:listener_id(Type, Listener),
     ClientInfo = set_peercert_infos(
@@ -1107,7 +1107,7 @@ handle_out(Type, Data, Channel) ->
 %%--------------------------------------------------------------------
 
 return_connack(AckPacket, Channel) ->
-    Replies = [{event, connected}, {event, update_limiter}, {connack, AckPacket}],
+    Replies = [{event, connected}, {connack, AckPacket}],
     case maybe_resume_session(Channel) of
         ignore ->
             {ok, Replies, Channel};

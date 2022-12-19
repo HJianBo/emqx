@@ -96,7 +96,7 @@ sample(Time, Tenants, Continuation) ->
     Message = emqx_message:make(
         ?MODULE,
         0,
-        <<"$SYS/$TENANY/metrics">>,
+        <<"$SYS/$TENANT/metrics">>,
         Payload,
         #{sys => true},
         #{properties => #{'Content-Type' => <<"application/json">>}}

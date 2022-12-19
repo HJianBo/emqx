@@ -33,7 +33,6 @@ all() ->
 
 init_per_suite(Config) ->
     emqx_mgmt_api_test_util:init_suite(),
-    emqx_config:put([tenant, tenant_id_from], peersni),
     ClientFn = emqx_tenant_test_helpers:reload_listener_with_ppv2(
         [listeners, tcp, default],
         ?HOST
@@ -166,7 +165,7 @@ t_publish_too_large(Config) ->
             "",
             TenantHeaders,
             Body,
-            #{return_body => true}
+            #{return_all => true}
         ),
     ?assertMatch({_, 400, _}, Summary),
     ?assertMatch(
@@ -285,7 +284,7 @@ t_publish_bulk_dispatch_one_message_invalid_topic(Config) when is_list(Config) -
             "",
             TenantHeaders,
             Body,
-            #{return_body => true}
+            #{return_all => true}
         ),
     ?assertMatch({_, 400, _}, Summary),
     ?assertMatch(
@@ -320,7 +319,7 @@ t_publish_bulk_dispatch_failure(Config) when is_list(Config) ->
             "",
             TenantHeaders,
             Body,
-            #{return_body => true}
+            #{return_all => true}
         ),
     ?assertMatch({_, 503, _}, Summary),
     ?assertMatch(

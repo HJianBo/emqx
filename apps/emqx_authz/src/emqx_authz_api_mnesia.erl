@@ -538,6 +538,7 @@ user(
     end,
     case count_new_rules_number({username, Tenant, Username}, Rules) of
         Diff when Diff =:= 0 ->
+            _ = UpdateFun(),
             {204};
         Diff when Diff < 0 ->
             with_release_quota(Tenant, Diff, UpdateFun);
@@ -590,6 +591,7 @@ client(
     end,
     case count_new_rules_number({clientid, Tenant, ClientID}, Rules) of
         Diff when Diff =:= 0 ->
+            _ = UpdateFun(),
             {204};
         Diff when Diff < 0 ->
             with_release_quota(Tenant, Diff, UpdateFun);
@@ -679,8 +681,12 @@ with_release_quota(Tenant, Count, Fun) ->
     {204}.
 
 count_new_rules_number(Key, NewRules) ->
-    {ok, OldRules} = emqx_authz_mnesia:lookup_rules(Key),
-    length(NewRules) - length(OldRules).
+    Old =
+        case emqx_authz_mnesia:lookup_rules(Key) of
+            {ok, OldRules} -> length(OldRules);
+            not_found -> 0
+        end,
+    length(NewRules) - Old.
 
 %%--------------------------------------------------------------------
 %% QueryString to MatchSpec

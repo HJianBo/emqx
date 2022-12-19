@@ -25,5 +25,5 @@ tenant(Req) ->
     tenant(Req, ?NO_TENANT).
 
 -spec tenant(map(), emqx_types:tenant_id() | undefined) -> eqmx_types:tenant_id() | undefined.
-tenant(_Req = #{headers := Headers}, Default) ->
-    maps:get(<<"emqx-tenant-id">>, Headers, Default).
+tenant(Req, Default) ->
+    maps:get(<<"emqx-tenant-id">>, maps:get(headers, Req, #{}), Default).

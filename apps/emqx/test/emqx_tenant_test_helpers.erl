@@ -46,7 +46,7 @@ reload_listener_with_ppv2(Path = [listeners, Type, Name], DefaultSni) when
     Type == tcp; Type == ws
 ->
     Cfg = emqx_config:get(Path),
-    ok = emqx_config:put(Path, Cfg#{proxy_protocol => true}),
+    ok = emqx_config:put(Path, Cfg#{proxy_protocol => true, tenant => #{tenant_id_from => peersni}}),
     ok = emqx_listeners:restart_listener(
         emqx_listeners:listener_id(Type, Name)
     ),
@@ -92,7 +92,7 @@ reload_listener_without_ppv2(Path = [listeners, Type, Name]) when
     Type == tcp; Type == ws
 ->
     Cfg = emqx_config:get(Path),
-    ok = emqx_config:put(Path, Cfg#{proxy_protocol => false}),
+    ok = emqx_config:put(Path, Cfg#{proxy_protocol => false, tenant => #{tenant_id_from => none}}),
     ok = emqx_listeners:restart_listener(
         emqx_listeners:listener_id(Type, Name)
     ),
