@@ -17,11 +17,12 @@
 -module(emqx_tenancy_quota).
 
 -include("emqx_tenancy.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 -behaviour(gen_server).
 
 %% APIs
--export([start_link/0]).
+-export([start_link/1, stop/0]).
 -export([load/0, unload/0]).
 
 %% Management APIs
@@ -59,9 +60,14 @@
     %% 0 means sync to mnesia immediately
     delayed_submit_ms := non_neg_integer(),
     %% How much delayed count is allowed
-    delayed_submit_diff := integer(),
+    delayed_submit_diff := non_neg_integer(),
     %% local schema and buffer
     buffer := #{tenant_id() => {usage(), LastSubmitTs :: pos_integer()}}
+}.
+
+-type options() :: #{
+    delayed_submit_ms => non_neg_integer(),
+    delayed_submit_diff => non_neg_integer()
 }.
 
 -record(usage, {
@@ -95,8 +101,18 @@
 %% APIs
 %%--------------------------------------------------------------------
 
-start_link() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+-spec start_link(options()) -> {ok, pid()} | ignore | {error, term()}.
+start_link(Options) ->
+    Def = #{
+        delayed_submit_ms => ?DEFAULT_SUBMIT_DELAY,
+        delayed_submit_diff => ?DEFAULT_SUBMIT_DIFF
+    },
+    NOptions = maps:merge(Def, Options),
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [NOptions], []).
+
+-spec stop() -> ok.
+stop() ->
+    gen_server:stop(?MODULE).
 
 %%--------------------------------------------------------------------
 %% load/unload
@@ -113,9 +129,9 @@ load() ->
 %% It's only works for new sessions
 -spec unload() -> ok.
 unload() ->
-    emqx_hooks:del('quota.sessions', {?MODULE, on_quota_sessions, []}),
-    emqx_hooks:del('quota.authn_users', {?MODULE, on_quota_authn_users, []}),
-    emqx_hooks:del('quota.authz_rules', {?MODULE, on_quota_authz_rules, []}).
+    emqx_hooks:del('quota.sessions', {?MODULE, on_quota_sessions}),
+    emqx_hooks:del('quota.authn_users', {?MODULE, on_quota_authn_users}),
+    emqx_hooks:del('quota.authz_rules', {?MODULE, on_quota_authz_rules}).
 
 %%--------------------------------------------------------------------
 %% Management APIs (cluster-level)
@@ -134,27 +150,9 @@ update(TenantId, Config) ->
 remove(TenantId) ->
     multicall(?MODULE, do_remove, [TenantId]).
 
--spec info(tenant_id()) -> {ok, #{node() => usage_info()}} | {error, term()}.
+-spec info(tenant_id()) -> {ok, usage_info()} | {error, term()}.
 info(TenantId) ->
-    Nodes = mria_mnesia:running_nodes(),
-    case emqx_rpc:multicall(Nodes, ?MODULE, do_info, [TenantId]) of
-        {Result, []} ->
-            NodesResult = lists:zip(Nodes, Result),
-            case return_ok_or_error(NodesResult) of
-                ok ->
-                    lists:foldl(
-                        fun({Node, {ok, Info}}, Acc) ->
-                            Acc#{Node => Info}
-                        end,
-                        #{},
-                        NodesResult
-                    );
-                {error, Reason} ->
-                    {error, Reason}
-            end;
-        {_, [Node | _]} ->
-            {error, {Node, badrpc}}
-    end.
+    do_info(TenantId).
 
 multicall(M, F, A) ->
     Nodes = mria_mnesia:running_nodes(),
@@ -190,12 +188,7 @@ do_remove(TenantId) ->
 
 -spec do_info(tenant_id()) -> {ok, usage_info()} | {error, not_found}.
 do_info(TenantId) ->
-    case ets:lookup(?USAGE_TAB, TenantId) of
-        [] ->
-            {error, not_found};
-        [Usage] ->
-            {ok, usage_to_info(Usage)}
-    end.
+    call({info, TenantId}).
 
 call(Msg) ->
     gen_server:call(?MODULE, Msg).
@@ -210,7 +203,7 @@ cast(Msg) ->
 
 -type quota_action() :: quota_action_name() | {quota_action_name(), pos_integer()}.
 
--type permision() :: {stop, allow | deny} | ok.
+-type permision() :: {stop, allow | deny}.
 
 -spec on_quota_sessions(quota_action(), emqx_types:clientinfo(), term()) -> permision().
 on_quota_sessions(_Action, #{tenant_id := ?NO_TENANT}, _LastPermision) ->
@@ -248,7 +241,14 @@ acquire(N, TenantId, Resource) ->
     end.
 
 release(N, TenantId, Resource) ->
-    cast({released, N, TenantId, Resource}).
+    try ets:lookup_element(?USAGE_TAB, TenantId, position(Resource)) of
+        _ ->
+            cast({released, N, TenantId, Resource}),
+            {stop, allow}
+    catch
+        error:badarg ->
+            {stop, deny}
+    end.
 
 position(Resource) ->
     P = #{
@@ -267,14 +267,12 @@ position(Resource) ->
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
--spec init([]) -> {ok, state()}.
-init([]) ->
+-spec init([options()]) -> {ok, state()}.
+init([Options]) ->
     process_flag(trap_exit, true),
     ok = mria:create_table(?USAGE_TAB, [
         {type, set},
         {rlog_shard, ?TENANCY_SHARD},
-        %% FIXME: ram_copies enough?
-        %% but authn,authz_rules, retained, etc. is disc_copies table
         {storage, ram_copies},
         {record_name, usage},
         {attributes, record_info(fields, usage)},
@@ -287,8 +285,8 @@ init([]) ->
     ]),
     State = #{
         pmon => emqx_pmon:new(),
-        delayed_submit_ms => ?DEFAULT_SUBMIT_DELAY,
-        delayed_submit_diff => ?DEFAULT_SUBMIT_DIFF,
+        delayed_submit_ms => maps:get(delayed_submit_ms, Options),
+        delayed_submit_diff => maps:get(delayed_submit_diff, Options),
         buffer => load_tenants_used()
     },
     {ok, ensure_submit_timer(State)}.
@@ -320,8 +318,16 @@ handle_call({remove, TenantId}, _From, State = #{buffer := Buffer}) ->
     NBuffer = maps:remove(TenantId, Buffer),
     ok = trans(fun() -> mnesia:delete(?USAGE_TAB, TenantId, write) end),
     {reply, ok, State#{buffer := NBuffer}};
-handle_call(_Request, _From, State) ->
-    Reply = ok,
+handle_call({info, TenantId}, _From, State = #{buffer := Buffer}) ->
+    Reply =
+        case ets:lookup(?USAGE_TAB, TenantId) of
+            [] ->
+                {error, not_found};
+            [Usage0] ->
+                {Usage1, _} = maps:get(TenantId, Buffer),
+                TotalUsage = update_usage_record(Usage0, Usage1),
+                {ok, usage_to_info(TotalUsage)}
+        end,
     {reply, Reply, State}.
 
 handle_cast(
@@ -447,13 +453,16 @@ submit(
             _ -> (Now - LastSubmitTs) > Interval
         end
     end,
-    case maps:filter(Pred, Buffer) of
-        Need when map_size(Need) =:= 0 ->
-            State;
-        Need ->
-            Need1 = do_submit(Now, Need),
-            State#{buffer := maps:merge(Buffer, Need1)}
-    end.
+    NState =
+        case maps:filter(Pred, Buffer) of
+            Need when map_size(Need) =:= 0 ->
+                State;
+            Need ->
+                Need1 = do_submit(Now, Need),
+                State#{buffer := maps:merge(Buffer, Need1)}
+        end,
+    ?tp(debug, submit, #{}),
+    NState.
 
 max_abs_diff(Usage) when is_record(Usage, usage) ->
     Fun = fun(I, Max) ->

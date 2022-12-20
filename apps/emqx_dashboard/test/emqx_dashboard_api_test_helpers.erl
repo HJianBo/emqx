@@ -147,7 +147,9 @@ tenant_id_headers(Tenant) when
     Tenant == <<>>
 ->
     [];
-tenant_id_headers(Tenant) ->
+tenant_id_headers(Tenant) when is_binary(Tenant) ->
+    tenant_id_headers(binary_to_list(Tenant));
+tenant_id_headers(Tenant) when is_list(Tenant) ->
     [{"EMQX-TENANT-ID", Tenant}].
 
 uri() -> uri([]).

@@ -67,7 +67,7 @@ init([]) ->
         },
         #{
             id => emqx_tenancy_quota,
-            start => {emqx_tenancy_quota, start_link, []},
+            start => {emqx_tenancy_quota, start_link, [#{}]},
             restart => permanent,
             shutdown => 5000,
             type => worker

@@ -133,8 +133,7 @@ schema("/clients") ->
                     hoconsc:mk(binary(), #{
                         in => query,
                         required => false,
-                        desc => <<"Client's IP address">>,
-                        example => <<"127.0.0.1">>
+                        desc => <<"Client's IP address, example: 127.0.0.1">>
                     })},
                 {conn_state,
                     hoconsc:mk(hoconsc:enum([connected, idle, disconnected]), #{
