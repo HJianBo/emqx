@@ -309,7 +309,7 @@ sample() ->
     Topic = sample_topic(),
     {Subscription, SharedSubscription} = sample_subscription(),
     MsgRetained = sample_msg_retained(),
-    Samples0 =
+    Samples =
         [
             {sessions, Session},
             {connections, Connection},
@@ -318,8 +318,7 @@ sample() ->
             {subscriptions_shared, SharedSubscription},
             {msg_retained, MsgRetained}
         ],
-    Samples = merge_sample(Samples0),
-    store_sample(Samples),
+    store_sample(merge_sample(Samples)),
     ok.
 
 merge_sample(Samples) ->
@@ -346,11 +345,17 @@ merge_sample(Sample, Key, Init) ->
     ).
 
 store_sample(Sample) ->
-    maps:foreach(
-        fun(Tenant, Stats) ->
-            ets:insert(?SAMPLE, {Tenant, Stats})
+    Tenants = get_enabled_tenant(),
+    lists:foreach(
+        fun(Tenant) ->
+            New =
+                case maps:get(Tenant, Sample, undefined) of
+                    undefined -> {Tenant, ?INIT};
+                    V -> {Tenant, V}
+                end,
+            ets:insert(?SAMPLE, New)
         end,
-        Sample
+        Tenants
     ).
 
 sample_session() ->
