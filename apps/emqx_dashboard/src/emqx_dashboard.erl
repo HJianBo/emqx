@@ -77,14 +77,16 @@ start_listeners(Listeners) ->
         {?BASE_PATH ++ "/[...]", emqx_dashboard_bad_api, []},
         {'_', cowboy_static, {priv_file, emqx_dashboard, "www/index.html"}}
     ],
+    Apps = apps(),
+    BaseMiddlewares = [?EMQX_MIDDLE, cowboy_router, cowboy_handler],
     BaseMinirest = #{
         base_path => ?BASE_PATH,
-        modules => minirest_api:find_api_modules(apps()),
+        modules => minirest_api:find_api_modules(Apps),
         authorization => Authorization,
         security => [#{'basicAuth' => []}, #{'bearerAuth' => []}],
         swagger_global_spec => GlobalSpec,
         dispatch => Dispatch,
-        middlewares => [?EMQX_MIDDLE, cowboy_router, cowboy_handler]
+        middlewares => BaseMiddlewares ++ find_middleware_modules(Apps)
     },
     Res =
         lists:foldl(
@@ -269,3 +271,26 @@ i18n_file() ->
 
 listeners() ->
     emqx_conf:get([dashboard, listeners], []).
+
+find_middleware_modules(Apps) ->
+    find_middleware_modules(Apps, []).
+
+find_middleware_modules([], Acc) ->
+    Acc;
+find_middleware_modules([App | Apps], Acc) ->
+    case application:get_key(App, modules) of
+        undefined ->
+            Acc;
+        {ok, Modules} ->
+            NewAcc = lists:filter(
+                fun(Module) ->
+                    Info = apply(Module, module_info, [attributes]),
+                    Behaviour =
+                        proplists:get_value(behavior, Info, []) ++
+                            proplists:get_value(behaviour, Info, []),
+                    lists:member(cowboy_middleware, Behaviour)
+                end,
+                Modules
+            ),
+            find_middleware_modules(Apps, NewAcc ++ Acc)
+    end.
