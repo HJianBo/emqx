@@ -47,7 +47,6 @@ groups() ->
     ].
 
 init_per_suite(Config) ->
-    ok = application:load(emqx_tenancy),
     emqx_dashboard_api_test_helpers:init_suite(
         [emqx_conf, emqx_authn, emqx_authz, emqx_tenancy],
         fun set_special_configs/1

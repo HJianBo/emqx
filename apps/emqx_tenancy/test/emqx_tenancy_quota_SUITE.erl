@@ -22,9 +22,73 @@
 -include_lib("emqx/include/emqx.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
+-define(TENANT_FOO, <<"tenant_foo">>).
+
 %%--------------------------------------------------------------------
 %% setup
 %%--------------------------------------------------------------------
 
-all() ->
-    [].
+all() -> emqx_common_test_helpers:all(?MODULE).
+
+init_per_suite(Config) ->
+    emqx_dashboard_api_test_helpers:init_suite(
+        [emqx_conf, emqx_authn, emqx_authz, emqx_tenancy],
+        fun set_special_configs/1
+    ),
+    %% create tenant
+    {ok, _} = emqx_tenancy:create(#{
+        <<"id">> => ?TENANT_FOO,
+        <<"configs">> => #{
+            <<"quotas">> => #{
+                <<"max_sessions">> => 1,
+                <<"max_auhtn_users">> => 1,
+                <<"max_authz_rules">> => 1
+            }
+        },
+        <<"status">> => enabled,
+        <<"desc">> => <<>>
+    }),
+    Config.
+
+end_per_suite(_) ->
+    %% revert to default value
+    {ok, _} = emqx:update_config(
+        [authorization],
+        #{
+            <<"no_match">> => <<"allow">>,
+            <<"cache">> => #{<<"enable">> => <<"true">>},
+            <<"sources">> => []
+        }
+    ),
+    ok = emqx_tenancy:delete(?TENANT_FOO),
+    emqx_dashboard_api_test_helpers:end_suite([emqx_tenancy, emqx_authz, emqx_authn, emqx_conf]).
+
+set_special_configs(emqx) ->
+    %% restart gen_rpc with `stateless` mode
+    application:set_env(gen_rpc, port_discovery, stateless),
+    ok = application:stop(gen_rpc),
+    ok = application:start(gen_rpc);
+set_special_configs(emqx_authz) ->
+    {ok, _} = emqx:update_config([authorization, sources], []);
+set_special_configs(_) ->
+    ok.
+
+%%--------------------------------------------------------------------
+%% tests
+%%--------------------------------------------------------------------
+
+t_default_submit_delay(_) ->
+    allow = emqx_hooks:run_fold('quota.sessions', [acquire, #{tenant_id => ?TENANT_FOO}], deny),
+    %% can exceed the the limit a while
+    allow = emqx_hooks:run_fold('quota.sessions', [acquire, #{tenant_id => ?TENANT_FOO}], deny),
+    allow = emqx_hooks:run_fold('quota.sessions', [acquire, #{tenant_id => ?TENANT_FOO}], deny),
+    %% deny all connections after usage synced
+    timer:sleep(1000),
+    deny = emqx_hooks:run_fold('quota.sessions', [acquire, #{tenant_id => ?TENANT_FOO}], allow),
+    ok.
+
+t_connection_crash(_) ->
+    ok.
+
+t_reload_authn_authz_usage(_) ->
+    ok.
