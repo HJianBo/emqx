@@ -194,6 +194,21 @@ swagger_desc(connections) ->
         "Connections at the time of sampling."
         " Can only represent the approximate state"
     >>;
+swagger_desc(sessions) ->
+    <<
+        "Sessions at the time of sampling."
+        " Can only represent the approximate state"
+    >>;
+swagger_desc(msg_retained) ->
+    <<
+        "Retained message at the time of sampling."
+        " Can only represent the approximate state"
+    >>;
+swagger_desc(subscriptions_shared) ->
+    <<
+        "Shared subscriptions at the time of sampling."
+        " Can only represent the approximate state"
+    >>;
 swagger_desc(received_msg_rate) ->
     swagger_desc_format("Dropped messages ", per);
 %swagger_desc(received_bytes_rate) -> swagger_desc_format("Received bytes ", per);
