@@ -285,7 +285,7 @@ t_import_users(TestConfig) ->
         {error, {unsupported_file_format, _}},
         emqx_authn_mnesia:import_users(
             Tenant,
-            {<<"/file/with/unknown.extension">>, <<>>},
+            {hash, <<"/file/with/unknown.extension">>, <<>>},
             State
         )
     ),
@@ -294,7 +294,7 @@ t_import_users(TestConfig) ->
         {error, unknown_file_format},
         emqx_authn_mnesia:import_users(
             Tenant,
-            {<<"/file/with/no/extension">>, <<>>},
+            {hash, <<"/file/with/no/extension">>, <<>>},
             State
         )
     ),
@@ -337,7 +337,7 @@ sample_filename(Name) ->
 sample_filename_and_data(Name) ->
     Filename = sample_filename(Name),
     {ok, Data} = file:read_file(Filename),
-    {Filename, Data}.
+    {hash, Filename, Data}.
 
 config() ->
     #{

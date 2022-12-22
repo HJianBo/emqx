@@ -203,16 +203,29 @@ do_destroy(UserGroup) ->
 import_users(Tenant, {PasswordType, Filename0, FileData}, State) ->
     Filename = to_binary(Filename0),
     Convertor = convertor(PasswordType, Tenant, State),
-    case filename:extension(Filename) of
-        <<".json">> ->
-            %% TODO: error handling
-            do_import_users(reader(json, FileData, Convertor));
-        <<".csv">> ->
-            do_import_users(reader(csv, FileData, Convertor));
-        <<>> ->
-            {error, unknown_file_format};
-        Extension ->
-            {error, {unsupported_file_format, Extension}}
+    try
+        case filename:extension(Filename) of
+            <<".json">> ->
+                do_import_users(reader(json, FileData, Convertor));
+            <<".csv">> ->
+                do_import_users(reader(csv, FileData, Convertor));
+            <<>> ->
+                error(unknown_file_format);
+            Extension ->
+                error({unsupported_file_format, Extension})
+        end
+    catch
+        error:Reason:Stk ->
+            ?SLOG(
+                warning,
+                #{
+                    msg => "import_users_failed",
+                    type => PasswordType,
+                    filename => Filename,
+                    stacktrace => Stk
+                }
+            ),
+            {error, Reason}
     end.
 
 do_import_users(Reader) ->
@@ -478,12 +491,17 @@ reader(csv, Data, Convertor) when is_binary(Data) ->
                 fun _Iter(Lines) ->
                     case csv_read_line(Lines) of
                         {ok, Line, Rest} ->
-                            %% FIXME: not support ' ' for a field?
+                            %% XXX: not support ' ' for a field?
                             Fields = binary:split(Line, [<<",">>, <<" ">>, <<"\n">>], [
                                 global, trim_all
                             ]),
-                            User = maps:from_list(lists:zip(Headers, Fields)),
-                            {Convertor(User), fun() -> _Iter(Rest) end};
+                            case length(Fields) == length(Headers) of
+                                true ->
+                                    User = maps:from_list(lists:zip(Headers, Fields)),
+                                    {Convertor(User), fun() -> _Iter(Rest) end};
+                                false ->
+                                    error(bad_format)
+                            end;
                         eof ->
                             eof
                     end
@@ -512,12 +530,16 @@ convert_user(
         <<"is_superuser">> => is_superuser(User),
         <<"tenant_id">> => Tenant,
         <<"user_group">> => UserGroup
-    }.
+    };
+convert_user(_, _, _, _) ->
+    error(bad_format).
 
 find_password_hash(hash, User = #{<<"password_hash">> := PasswordHash}, _) ->
     {PasswordHash, maps:get(<<"salt">>, User, <<>>)};
 find_password_hash(plain, #{<<"password">> := Password}, Algorithm) ->
-    emqx_authn_password_hashing:hash(Algorithm, Password).
+    emqx_authn_password_hashing:hash(Algorithm, Password);
+find_password_hash(_, _, _) ->
+    error(bad_format).
 
 is_superuser(#{<<"is_superuser">> := <<"true">>}) -> true;
 is_superuser(#{<<"is_superuser">> := true}) -> true;
