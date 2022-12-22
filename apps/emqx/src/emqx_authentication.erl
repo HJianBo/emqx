@@ -177,11 +177,15 @@ when
 when
     State :: state().
 
--callback import_users(Tenant, {Filename, FileData}, State) ->
+-callback import_users(Tenant, {PasswordType, Filename, FileData}, State) ->
     ok
     | {error, term()}
 when
-    Tenant :: emqx_types:tenant_id(), Filename :: binary(), FileData :: binary(), State :: state().
+    Tenant :: emqx_types:tenant_id(),
+    PasswordType :: plain | hash,
+    Filename :: binary(),
+    FileData :: binary(),
+    State :: state().
 
 -callback add_user(Tenant, UserInfo, State) ->
     {ok, User}
@@ -434,7 +438,9 @@ list_authenticators(ChainName) ->
 move_authenticator(ChainName, AuthenticatorID, Position) ->
     call({move_authenticator, ChainName, AuthenticatorID, Position}).
 
--spec import_users(chain_name(), authenticator_id(), emqx_types:tenant_id(), {binary(), binary()}) ->
+-spec import_users(chain_name(), authenticator_id(), emqx_types:tenant_id(), {
+    atom(), binary(), binary()
+}) ->
     ok | {error, term()}.
 import_users(ChainName, AuthenticatorID, Tenant, Filename) ->
     call({import_users, ChainName, AuthenticatorID, Tenant, Filename}).

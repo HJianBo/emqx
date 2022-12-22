@@ -61,9 +61,7 @@
     do_add_user/3,
     do_delete_user/3,
     do_update_user/4,
-    do_tenant_deleted/1,
-    import/3,
-    import_csv/4
+    do_tenant_deleted/1
 ]).
 
 -type user_group() :: binary().
@@ -202,18 +200,52 @@ do_destroy(UserGroup) ->
         mnesia:select(?TAB, qs2ms([{user_group, '=:=', UserGroup}]), write)
     ).
 
-import_users(Tenant, {Filename0, FileData}, State) ->
+import_users(Tenant, {PasswordType, Filename0, FileData}, State) ->
     Filename = to_binary(Filename0),
+    Convertor = convertor(PasswordType, Tenant, State),
     case filename:extension(Filename) of
         <<".json">> ->
-            import_users_from_json(Tenant, FileData, State);
+            %% TODO: error handling
+            do_import_users(reader(json, FileData, Convertor));
         <<".csv">> ->
-            CSV = csv_data(FileData),
-            import_users_from_csv(Tenant, CSV, State);
+            do_import_users(reader(csv, FileData, Convertor));
         <<>> ->
             {error, unknown_file_format};
         Extension ->
             {error, {unsupported_file_format, Extension}}
+    end.
+
+do_import_users(Reader) ->
+    Eval = fun _Eval(F) ->
+        case F() of
+            eof -> [];
+            {User, F1} -> [User | _Eval(F1)]
+        end
+    end,
+    case Eval(Reader) of
+        [] ->
+            ok;
+        Users0 ->
+            Users = lists:reverse(Users0),
+            trans(
+                fun() ->
+                    lists:foreach(
+                        fun(
+                            #{
+                                <<"user_group">> := UserGroup,
+                                <<"tenant_id">> := Tenant,
+                                <<"user_id">> := UserID,
+                                <<"password_hash">> := PasswordHash,
+                                <<"salt">> := Salt,
+                                <<"is_superuser">> := IsSuperuser
+                            }
+                        ) ->
+                            insert_user(UserGroup, Tenant, UserID, PasswordHash, Salt, IsSuperuser)
+                        end,
+                        Users
+                    )
+                end
+            )
     end.
 
 add_user(Tenant, UserInfo, State) ->
@@ -346,95 +378,6 @@ run_fuzzy_filter(
 %% Internal functions
 %%------------------------------------------------------------------------------
 
-%% Example: data/user-credentials.json
-import_users_from_json(Tenant, Bin, #{user_group := UserGroup}) ->
-    case emqx_json:safe_decode(Bin, [return_maps]) of
-        {ok, List} ->
-            trans(fun ?MODULE:import/3, [UserGroup, Tenant, List]);
-        {error, Reason} ->
-            {error, Reason}
-    end.
-
-%% Example: data/user-credentials.csv
-import_users_from_csv(Tenant, CSV, #{user_group := UserGroup}) ->
-    case get_csv_header(CSV) of
-        {ok, Seq, NewCSV} ->
-            trans(fun ?MODULE:import_csv/4, [UserGroup, Tenant, NewCSV, Seq]);
-        {error, Reason} ->
-            {error, Reason}
-    end.
-
-import(_UserGroup, _Tenant, []) ->
-    ok;
-import(UserGroup, Tenant, [
-    #{
-        <<"user_id">> := UserID,
-        <<"password_hash">> := PasswordHash
-    } = UserInfo
-    | More
-]) when
-    is_binary(UserID) andalso is_binary(PasswordHash)
-->
-    Salt = maps:get(<<"salt">>, UserInfo, <<>>),
-    IsSuperuser = maps:get(<<"is_superuser">>, UserInfo, false),
-    insert_user(UserGroup, Tenant, UserID, PasswordHash, Salt, IsSuperuser),
-    import(UserGroup, Tenant, More);
-import(_UserGroup, _Tenant, [_ | _More]) ->
-    {error, bad_format}.
-
-%% Importing 5w users needs 1.7 seconds
-import_csv(UserGroup, Tenant, CSV, Seq) ->
-    case csv_read_line(CSV) of
-        {ok, Line, NewCSV} ->
-            Fields = binary:split(Line, [<<",">>, <<" ">>, <<"\n">>], [global, trim_all]),
-            case get_user_info_by_seq(Fields, Seq) of
-                {ok,
-                    #{
-                        user_id := UserID,
-                        password_hash := PasswordHash
-                    } = UserInfo} ->
-                    Salt = maps:get(salt, UserInfo, <<>>),
-                    IsSuperuser = maps:get(is_superuser, UserInfo, false),
-                    insert_user(UserGroup, Tenant, UserID, PasswordHash, Salt, IsSuperuser),
-                    import_csv(UserGroup, Tenant, NewCSV, Seq);
-                {error, Reason} ->
-                    {error, Reason}
-            end;
-        eof ->
-            ok
-    end.
-
-get_csv_header(CSV) ->
-    case csv_read_line(CSV) of
-        {ok, Line, NewCSV} ->
-            Seq = binary:split(Line, [<<",">>, <<" ">>, <<"\n">>], [global, trim_all]),
-            {ok, Seq, NewCSV};
-        eof ->
-            {error, empty_file}
-    end.
-
-get_user_info_by_seq(Fields, Seq) ->
-    get_user_info_by_seq(Fields, Seq, #{}).
-
-get_user_info_by_seq([], [], #{user_id := _, password_hash := _} = Acc) ->
-    {ok, Acc};
-get_user_info_by_seq(_, [], _) ->
-    {error, bad_format};
-get_user_info_by_seq([Tenant | More1], [<<"tenant_id">> | More2], Acc) ->
-    get_user_info_by_seq(More1, More2, Acc#{tenant_id => Tenant});
-get_user_info_by_seq([UserID | More1], [<<"user_id">> | More2], Acc) ->
-    get_user_info_by_seq(More1, More2, Acc#{user_id => UserID});
-get_user_info_by_seq([PasswordHash | More1], [<<"password_hash">> | More2], Acc) ->
-    get_user_info_by_seq(More1, More2, Acc#{password_hash => PasswordHash});
-get_user_info_by_seq([Salt | More1], [<<"salt">> | More2], Acc) ->
-    get_user_info_by_seq(More1, More2, Acc#{salt => Salt});
-get_user_info_by_seq([<<"true">> | More1], [<<"is_superuser">> | More2], Acc) ->
-    get_user_info_by_seq(More1, More2, Acc#{is_superuser => true});
-get_user_info_by_seq([<<"false">> | More1], [<<"is_superuser">> | More2], Acc) ->
-    get_user_info_by_seq(More1, More2, Acc#{is_superuser => false});
-get_user_info_by_seq(_, _, _) ->
-    {error, bad_format}.
-
 insert_user(UserGroup, Tenant, UserID, PasswordHash, Salt, IsSuperuser) ->
     UserInfo = #user_info{
         user_id = {UserGroup, Tenant, UserID},
@@ -454,6 +397,12 @@ get_user_identity(_, Type) ->
 
 trans(Fun, Args) ->
     case mria:transaction(?AUTH_SHARD, Fun, Args) of
+        {atomic, Res} -> Res;
+        {aborted, Reason} -> {error, Reason}
+    end.
+
+trans(Fun) ->
+    case mria:transaction(?AUTH_SHARD, Fun) of
         {atomic, Res} -> Res;
         {aborted, Reason} -> {error, Reason}
     end.
@@ -504,9 +453,88 @@ qs2ms(Qs) when is_list(Qs) ->
     %% TODO: compatible the old user id schema?
     [{Mh1, Conds1, Return}].
 
+%%--------------------------------------------------------------------
+%% parse import file
+
+%% Example: data/user-credentials.json
+reader(json, Data, Convertor) when is_binary(Data) ->
+    case emqx_json:safe_decode(Data, [return_maps]) of
+        {ok, List} ->
+            Reader =
+                fun
+                    _Iter([]) -> eof;
+                    _Iter([User | Rest]) -> {Convertor(User), fun() -> _Iter(Rest) end}
+                end,
+            fun() -> Reader(List) end;
+        {error, Reason} ->
+            error(Reason)
+    end;
+%% Example: data/user-credentials.csv
+reader(csv, Data, Convertor) when is_binary(Data) ->
+    CSVData = csv_data(Data),
+    case get_csv_header(CSVData) of
+        {ok, Headers, CSVLines} ->
+            Reader =
+                fun _Iter(Lines) ->
+                    case csv_read_line(Lines) of
+                        {ok, Line, Rest} ->
+                            %% FIXME: not support ' ' for a field?
+                            Fields = binary:split(Line, [<<",">>, <<" ">>, <<"\n">>], [
+                                global, trim_all
+                            ]),
+                            User = maps:from_list(lists:zip(Headers, Fields)),
+                            {Convertor(User), fun() -> _Iter(Rest) end};
+                        eof ->
+                            eof
+                    end
+                end,
+            fun() -> Reader(CSVLines) end;
+        {error, Reason} ->
+            error(Reason)
+    end.
+
+convertor(PasswordType, Tenant, State) ->
+    fun(User) ->
+        convert_user(User, PasswordType, Tenant, State)
+    end.
+
+convert_user(
+    User = #{<<"user_id">> := UserId},
+    PasswordType,
+    Tenant,
+    #{user_group := UserGroup, password_hash_algorithm := Algorithm}
+) ->
+    {PasswordHash, Salt} = find_password_hash(PasswordType, User, Algorithm),
+    #{
+        <<"user_id">> => UserId,
+        <<"password_hash">> => PasswordHash,
+        <<"salt">> => Salt,
+        <<"is_superuser">> => is_superuser(User),
+        <<"tenant_id">> => Tenant,
+        <<"user_group">> => UserGroup
+    }.
+
+find_password_hash(hash, User = #{<<"password_hash">> := PasswordHash}, _) ->
+    {PasswordHash, maps:get(<<"salt">>, User, <<>>)};
+find_password_hash(plain, #{<<"password">> := Password}, Algorithm) ->
+    emqx_authn_password_hashing:hash(Algorithm, Password).
+
+is_superuser(#{<<"is_superuser">> := <<"true">>}) -> true;
+is_superuser(#{<<"is_superuser">> := true}) -> true;
+is_superuser(_) -> false.
+
 csv_data(Data) ->
     Lines = binary:split(Data, [<<"\r">>, <<"\n">>], [global, trim_all]),
     {csv_data, Lines}.
+
+get_csv_header(CSV) ->
+    case csv_read_line(CSV) of
+        {ok, Line, NewCSV} ->
+            Seq = binary:split(Line, [<<",">>, <<" ">>, <<"\n">>], [global, trim_all]),
+            {ok, Seq, NewCSV};
+        eof ->
+            {error, empty_file}
+    end.
 
 csv_read_line({csv_data, [Line | Lines]}) ->
     {ok, Line, {csv_data, Lines}};
