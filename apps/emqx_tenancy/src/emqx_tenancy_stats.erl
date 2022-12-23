@@ -53,6 +53,7 @@
 
 -define(SAMPLE, emqx_tenancy_sample).
 -define(STATS, ?MODULE).
+-define(TOPIC, emqx_tenancy_topic).
 
 %% TODO collect those by hooks
 -define(INIT, #{
@@ -233,6 +234,7 @@ init([]) ->
     TabOpts = [public, {write_concurrency, true}],
     emqx_tables:new(?STATS, [{keypos, #stats.tenant_id} | TabOpts]),
     emqx_tables:new(?SAMPLE, [{keypos, 1} | TabOpts]),
+    emqx_tables:new(?TOPIC, [{keypos, 1} | TabOpts]),
     enable_hooks(),
     {ok, #{}, {continue, load_stats}}.
 
@@ -387,15 +389,17 @@ sample_connection() ->
     ).
 
 sample_topic() ->
+    ets:delete_all_objects(?TOPIC),
     ets:foldl(
-        fun(#route{topic = Topic}, Acc) ->
-            case Topic of
-                <<"$tenants/", Binary/binary>> ->
-                    [Tenant, _] = binary:split(Binary, [<<"/">>]),
-                    maps:update_with(Tenant, fun(V) -> V + 1 end, 1, Acc);
-                _ ->
-                    Acc
-            end
+        fun
+            (#route{topic = <<"$tenants/", Binary/binary>> = Topic}, Acc) ->
+                [Tenant, _] = binary:split(Binary, [<<"/">>]),
+                case ets:insert_new(?TOPIC, {Topic}) of
+                    true -> maps:update_with(Tenant, fun(V) -> V + 1 end, 1, Acc);
+                    false -> Acc
+                end;
+            (_, Acc) ->
+                Acc
         end,
         #{},
         emqx_route
