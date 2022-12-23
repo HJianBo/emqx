@@ -104,6 +104,8 @@ init([]) ->
     process_flag(trap_exit, true),
     ok = ekka:monitor(membership),
     _ = mria:wait_for_tables([?ROUTING_NODE]),
+    TabOpts = [public, {write_concurrency, true}],
+    emqx_tables:new(?MODULE, [{keypos, 1} | TabOpts]),
     {ok, _} = mnesia:subscribe({table, ?ROUTING_NODE, simple}),
     Nodes = lists:foldl(
         fun(Node, Acc) ->
@@ -182,8 +184,19 @@ stats_fun() ->
     case ets:info(?ROUTE, size) of
         undefined ->
             ok;
-        Size ->
-            emqx_stats:setstat('topics.count', 'topics.max', Size)
+        Size when Size >= 0 ->
+            ets:delete_all_objects(?MODULE),
+            ets:foldl(
+                fun(#route{topic = Topic}, Acc) ->
+                    ets:insert_new(?MODULE, {Topic}),
+                    Acc
+                end,
+                ok,
+                ?ROUTE
+            ),
+            TopicSize = ets:info(?MODULE, size),
+            ets:delete_all_objects(?MODULE),
+            emqx_stats:setstat('topics.count', 'topics.max', TopicSize)
     end.
 
 cleanup_routes(Node) ->

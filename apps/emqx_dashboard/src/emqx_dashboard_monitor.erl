@@ -401,6 +401,9 @@ getstats(Key) ->
     end.
 
 stats(connections) -> emqx_stats:getstat('connections.count');
+stats(sessions) -> emqx_stats:getstat('sessions.count');
+stats(msg_retained) -> emqx_stats:getstat('retained.count');
+stats(subscriptions_shared) -> emqx_stats:getstat('subscriptions.shared.count');
 stats(topics) -> emqx_stats:getstat('topics.count');
 stats(subscriptions) -> emqx_stats:getstat('subscriptions.count');
 stats(received) -> emqx_metrics:val('messages.received');

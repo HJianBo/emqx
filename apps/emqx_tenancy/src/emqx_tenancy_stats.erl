@@ -53,6 +53,7 @@
 
 -define(SAMPLE, emqx_tenancy_sample).
 -define(STATS, ?MODULE).
+-define(TOPIC, emqx_tenancy_topic).
 
 %% TODO collect those by hooks
 -define(INIT, #{
@@ -233,6 +234,7 @@ init([]) ->
     TabOpts = [public, {write_concurrency, true}],
     emqx_tables:new(?STATS, [{keypos, #stats.tenant_id} | TabOpts]),
     emqx_tables:new(?SAMPLE, [{keypos, 1} | TabOpts]),
+    emqx_tables:new(?TOPIC, [{keypos, 1} | TabOpts]),
     enable_hooks(),
     {ok, #{}, {continue, load_stats}}.
 
@@ -309,7 +311,7 @@ sample() ->
     Topic = sample_topic(),
     {Subscription, SharedSubscription} = sample_subscription(),
     MsgRetained = sample_msg_retained(),
-    Samples0 =
+    Samples =
         [
             {sessions, Session},
             {connections, Connection},
@@ -318,8 +320,7 @@ sample() ->
             {subscriptions_shared, SharedSubscription},
             {msg_retained, MsgRetained}
         ],
-    Samples = merge_sample(Samples0),
-    store_sample(Samples),
+    store_sample(merge_sample(Samples)),
     ok.
 
 merge_sample(Samples) ->
@@ -346,11 +347,17 @@ merge_sample(Sample, Key, Init) ->
     ).
 
 store_sample(Sample) ->
-    maps:foreach(
-        fun(Tenant, Stats) ->
-            ets:insert(?SAMPLE, {Tenant, Stats})
+    Tenants = get_enabled_tenant(),
+    lists:foreach(
+        fun(Tenant) ->
+            New =
+                case maps:get(Tenant, Sample, undefined) of
+                    undefined -> {Tenant, ?INIT};
+                    V -> {Tenant, V}
+                end,
+            ets:insert(?SAMPLE, New)
         end,
-        Sample
+        Tenants
     ).
 
 sample_session() ->
@@ -382,15 +389,17 @@ sample_connection() ->
     ).
 
 sample_topic() ->
+    ets:delete_all_objects(?TOPIC),
     ets:foldl(
-        fun(#route{topic = Topic}, Acc) ->
-            case Topic of
-                <<"$tenants/", Binary/binary>> ->
-                    [Tenant, _] = binary:split(Binary, [<<"/">>]),
-                    maps:update_with(Tenant, fun(V) -> V + 1 end, 1, Acc);
-                _ ->
-                    Acc
-            end
+        fun
+            (#route{topic = <<"$tenants/", Binary/binary>> = Topic}, Acc) ->
+                [Tenant, _] = binary:split(Binary, [<<"/">>]),
+                case ets:insert_new(?TOPIC, {Topic}) of
+                    true -> maps:update_with(Tenant, fun(V) -> V + 1 end, 1, Acc);
+                    false -> Acc
+                end;
+            (_, Acc) ->
+                Acc
         end,
         #{},
         emqx_route
@@ -401,9 +410,11 @@ sample_subscription() ->
         fun(Sub, {Acc, ShareAcc}) ->
             case Sub of
                 {_, #{subid := {Tenant, _}, share := _}} ->
-                    {Acc, maps:update_with(Tenant, fun(V) -> V + 1 end, 1, ShareAcc)};
+                    {
+                        maps:update_with(Tenant, fun(V) -> V + 1 end, 1, Acc),
+                        maps:update_with(Tenant, fun(V) -> V + 1 end, 1, ShareAcc)
+                    };
                 {_, #{subid := {Tenant, _}}} ->
-                    %% XXX: subscription should include shared subs?
                     {maps:update_with(Tenant, fun(V) -> V + 1 end, 1, Acc), ShareAcc};
                 _ ->
                     {Acc, ShareAcc}

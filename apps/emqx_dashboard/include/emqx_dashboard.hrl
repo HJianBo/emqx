@@ -61,7 +61,10 @@
 -define(GAUGE_SAMPLER_LIST, [
     subscriptions,
     topics,
-    connections
+    connections,
+    sessions,
+    msg_retained,
+    subscriptions_shared
 ]).
 
 -define(SAMPLER_LIST, ?GAUGE_SAMPLER_LIST ++ ?DELTA_SAMPLER_LIST).
