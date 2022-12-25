@@ -103,12 +103,19 @@ prop_load_unload() ->
 
 do_setup() ->
     net_kernel:start([?NODENAME, longnames]),
+    ok = meck:new(emqx_tenancy_resm, [passthrough, no_history]),
+    ok = meck:expect(
+        emqx_tenancy_resm,
+        monitor_session_proc,
+        fun(_, _, _) -> ok end
+    ),
     emqx_common_test_helpers:boot_modules(all),
     emqx_common_test_helpers:start_apps([]),
     ok.
 
 do_teardown(_) ->
-    emqx_common_test_helpers:stop_apps([]).
+    emqx_common_test_helpers:stop_apps([]),
+    ok = meck:unload(emqx_tenancy_resm).
 
 %%--------------------------------------------------------------------
 %% model

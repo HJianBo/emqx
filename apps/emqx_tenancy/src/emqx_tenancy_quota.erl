@@ -56,7 +56,6 @@
 -export([acquire/3, release/3]).
 
 -type state() :: #{
-    pmon := emqx_pmon:pmon(),
     %% 0 means sync to mnesia immediately
     delayed_submit_ms := non_neg_integer(),
     %% How much delayed count is allowed
@@ -208,8 +207,20 @@ cast(Msg) ->
 -spec on_quota_sessions(quota_action(), emqx_types:clientinfo(), term()) -> permision().
 on_quota_sessions(_Action, #{tenant_id := ?NO_TENANT}, _LastPermision) ->
     {stop, allow};
-on_quota_sessions(Action, _ClientInfo = #{tenant_id := TenantId}, _LastPermision) ->
-    exec_quota_action(Action, [TenantId, sessions]).
+on_quota_sessions(Action, ClientInfo = #{tenant_id := TenantId}, _LastPermision) ->
+    Res = exec_quota_action(Action, [TenantId, sessions]),
+    case is_acquire_action(Action) andalso Res of
+        {stop, allow} ->
+            ClientId = maps:get(clientid, ClientInfo),
+            emqx_tenancy_resm:monitor_session_proc(
+                self(),
+                TenantId,
+                ClientId
+            );
+        _ ->
+            ok
+    end,
+    Res.
 
 -spec on_quota_authn_users(quota_action(), tenant_id(), term()) -> permision().
 on_quota_authn_users(_Action, ?NO_TENANT, _LastPermision) ->
@@ -228,15 +239,15 @@ exec_quota_action(Action, Args) when Action == acquire; Action == release ->
 exec_quota_action({Action, N}, Args) when Action == acquire; Action == release ->
     erlang:apply(?MODULE, Action, [N | Args]).
 
+is_acquire_action(acquire) -> true;
+is_acquire_action({acquire, _}) -> true;
+is_acquire_action(_) -> false.
+
 acquire(N, TenantId, Resource) ->
-    try ets:lookup_element(?USAGE_TAB, TenantId, position(Resource)) of
-        #{max := Max, used := Used} when Max >= (Used + N) ->
-            cast({acquired, N, TenantId, Resource, self()}),
+    case call({acquire, N, TenantId, Resource}) of
+        allow ->
             {stop, allow};
-        _ ->
-            {stop, deny}
-    catch
-        error:badarg ->
+        deny ->
             {stop, deny}
     end.
 
@@ -284,7 +295,6 @@ init([Options]) ->
         ]}
     ]),
     State = #{
-        pmon => emqx_pmon:new(),
         delayed_submit_ms => maps:get(delayed_submit_ms, Options),
         delayed_submit_diff => maps:get(delayed_submit_diff, Options),
         buffer => load_tenants_used()
@@ -328,40 +338,21 @@ handle_call({info, TenantId}, _From, State = #{buffer := Buffer}) ->
                 TotalUsage = update_usage_record(Usage0, Usage1),
                 {ok, usage_to_info(TotalUsage)}
         end,
-    {reply, Reply, State}.
-
-handle_cast(
-    {acquired, N, TenantId, Resource, Taker},
-    State = #{pmon := PMon, buffer := Buffer}
+    {reply, Reply, State};
+handle_call(
+    {acquire, N, TenantId, Resource},
+    _From,
+    State = #{buffer := Buffer}
 ) ->
-    PMon1 =
-        case Resource of
-            sessions ->
-                emqx_pmon:monitor(Taker, {TenantId, Resource}, PMon);
-            _ ->
-                PMon
-        end,
-    {Usage, LastSubmitTs} = maps:get(TenantId, Buffer),
-    TBuffer = {incr(Resource, N, Usage), LastSubmitTs},
-    Buffer1 = Buffer#{TenantId => TBuffer},
-    {noreply, submit(State#{pmon := PMon1, buffer := Buffer1})};
+    {Reply, Buffer1} = do_acquire(N, TenantId, Resource, Buffer),
+    {reply, Reply, submit(State#{buffer := Buffer1})}.
+
 handle_cast({released, N, TenantId, Resource}, State = #{buffer := Buffer}) ->
     Buffer1 = do_release(N, TenantId, Resource, Buffer),
     {noreply, submit(State#{buffer := Buffer1})}.
 
 handle_info(submit, State) ->
     {noreply, ensure_submit_timer(submit(State))};
-handle_info({'DOWN', _MRef, process, Pid, _Reason}, State = #{pmon := PMon, buffer := Buffer}) ->
-    ChanPids = [Pid | emqx_misc:drain_down(?BATCH_SIZE)],
-    {Items, PMon1} = emqx_pmon:erase_all(ChanPids, PMon),
-    Buffer1 = lists:foldl(
-        fun({_, {TenantId, Resource}}, Acc) ->
-            do_release(1, TenantId, Resource, Acc)
-        end,
-        Buffer,
-        Items
-    ),
-    {noreply, submit(State#{pmon := PMon1, buffer := Buffer1})};
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -510,7 +501,24 @@ do_submit(Now, Need) ->
     ).
 
 %%--------------------------------------------------------------------
-%% clear
+%% acquire & release
+
+do_acquire(N, TenantId, Resource, Buffer) ->
+    case maps:get(TenantId, Buffer, undefined) of
+        undefined ->
+            {deny, Buffer};
+        {Usage, LastSubmitTs} ->
+            Pos = position(Resource),
+            #{max := Max, used := Used0} = ets:lookup_element(?USAGE_TAB, TenantId, Pos),
+            #{used := Used} = element(Pos, Usage),
+            case Max >= Used0 + Used + N of
+                true ->
+                    TBuffer = {incr(Resource, N, Usage), LastSubmitTs},
+                    {allow, Buffer#{TenantId => TBuffer}};
+                false ->
+                    {deny, Buffer}
+            end
+    end.
 
 do_release(N, TenantId, Resource, Buffer) ->
     case maps:get(TenantId, Buffer, undefined) of

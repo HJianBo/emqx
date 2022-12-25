@@ -71,6 +71,13 @@ init([]) ->
             restart => permanent,
             shutdown => 5000,
             type => worker
+        },
+        #{
+            id => emqx_tenancy_resm,
+            start => {emqx_tenancy_resm, start_link, []},
+            restart => permanent,
+            shutdown => 5000,
+            type => worker
         }
     ],
     {ok, {SupFlags, ChildSpecs}}.

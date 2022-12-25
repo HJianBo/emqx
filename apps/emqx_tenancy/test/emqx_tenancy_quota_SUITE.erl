@@ -77,14 +77,10 @@ set_special_configs(_) ->
 %% tests
 %%--------------------------------------------------------------------
 
-t_default_submit_delay(_) ->
-    allow = emqx_hooks:run_fold('quota.sessions', [acquire, #{tenant_id => ?TENANT_FOO}], deny),
-    %% can exceed the the limit a while
-    allow = emqx_hooks:run_fold('quota.sessions', [acquire, #{tenant_id => ?TENANT_FOO}], deny),
-    allow = emqx_hooks:run_fold('quota.sessions', [acquire, #{tenant_id => ?TENANT_FOO}], deny),
-    %% deny all connections after usage synced
-    timer:sleep(1000),
-    deny = emqx_hooks:run_fold('quota.sessions', [acquire, #{tenant_id => ?TENANT_FOO}], allow),
+t_no_submit_delay_on_single_node(_) ->
+    allow = emqx_hooks:run_fold('quota.sessions', [acquire, clientinfo()], deny),
+    deny = emqx_hooks:run_fold('quota.sessions', [acquire, clientinfo()], deny),
+    deny = emqx_hooks:run_fold('quota.sessions', [acquire, clientinfo()], allow),
     ok.
 
 t_connection_crash(_) ->
@@ -92,3 +88,12 @@ t_connection_crash(_) ->
 
 t_reload_authn_authz_usage(_) ->
     ok.
+
+%%--------------------------------------------------------------------
+%% helpers
+
+clientinfo() ->
+    #{
+        tenant_id => ?TENANT_FOO,
+        clientid => emqx_clientid:with_tenant(?TENANT_FOO, <<"clientid">>)
+    }.
