@@ -103,8 +103,8 @@ update(_Id, _) ->
 
 -spec delete(tenant_id()) -> ok.
 delete(Id) ->
-    ok = emqx_tenancy_limiter:remove(Id),
     ok = emqx_tenancy_quota:remove(Id),
+    ok = emqx_tenancy_limiter:remove(Id),
     trans(fun ?MODULE:do_delete/1, [Id]).
 
 trans(Fun, Args) ->

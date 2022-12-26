@@ -60,6 +60,7 @@ schema("/authentication/:id/import_users") ->
             tags => ?API_TAGS_GLOBAL,
             description => ?DESC(authentication_id_import_users_post),
             parameters => [
+                param_password_type(),
                 hoconsc:ref(emqx_dashboard_swagger, tenant_id),
                 emqx_authn_api:param_auth_id()
             ],
@@ -78,6 +79,7 @@ schema("/listeners/:listener_id/authentication/:id/import_users") ->
             tags => ?API_TAGS_SINGLE,
             description => ?DESC(listeners_listener_id_authentication_id_import_users_post),
             parameters => [
+                param_password_type(),
                 hoconsc:ref(emqx_dashboard_swagger, tenant_id),
                 emqx_authn_api:param_listener_id(),
                 emqx_authn_api:param_auth_id()
@@ -98,9 +100,14 @@ authenticator_import_users(
         body := #{<<"filename">> := #{type := _} = File}
     }
 ) ->
+    PasswordType = password_type(Req),
     Tenant = tenant(Req),
     [{FileName, FileData}] = maps:to_list(maps:without([type], File)),
-    case emqx_authentication:import_users(?GLOBAL, AuthenticatorID, Tenant, {FileName, FileData}) of
+    case
+        emqx_authentication:import_users(
+            ?GLOBAL, AuthenticatorID, Tenant, {PasswordType, FileName, FileData}
+        )
+    of
         ok -> {204};
         {error, Reason} -> emqx_authn_api:serialize_error(Reason)
     end;
@@ -114,6 +121,7 @@ listener_authenticator_import_users(
         body := #{<<"filename">> := #{type := _} = File}
     }
 ) ->
+    PasswordType = password_type(Req),
     Tenant = tenant(Req),
     [{FileName, FileData}] = maps:to_list(maps:without([type], File)),
     emqx_authn_api:with_chain(
@@ -121,7 +129,7 @@ listener_authenticator_import_users(
         fun(ChainName) ->
             case
                 emqx_authentication:import_users(
-                    ChainName, AuthenticatorID, Tenant, {FileName, FileData}
+                    ChainName, AuthenticatorID, Tenant, {PasswordType, FileName, FileData}
                 )
             of
                 ok -> {204};
@@ -131,3 +139,27 @@ listener_authenticator_import_users(
     );
 listener_authenticator_import_users(post, #{bindings := #{listener_id := _, id := _}, body := _}) ->
     emqx_authn_api:serialize_error({missing_parameter, filename}).
+
+%%--------------------------------------------------------------------
+%% helpers
+
+param_password_type() ->
+    {type,
+        hoconsc:mk(
+            binary(),
+            #{
+                in => query,
+                enum => [<<"plain">>, <<"hash">>],
+                required => true,
+                desc => <<
+                    "The import file template type, enum with `plain`,"
+                    "`hash`"
+                >>,
+                example => <<"hash">>
+            }
+        )}.
+
+password_type(_Req = #{query_string := #{<<"type">> := Type}}) ->
+    binary_to_existing_atom(Type);
+password_type(_) ->
+    hash.

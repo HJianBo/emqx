@@ -260,7 +260,7 @@ t_list_users(TestConfig) ->
 t_import_users(TestConfig) ->
     Tenant = proplists:get_value(tenant, TestConfig),
     Config0 = config(),
-    Config = Config0#{password_hash_algorithm => #{name => sha256}},
+    Config = Config0#{password_hash_algorithm => #{name => sha256, salt_position => prefix}},
     {ok, State} = emqx_authn_mnesia:create(?AUTHN_ID, Config),
 
     ?assertEqual(
@@ -276,7 +276,25 @@ t_import_users(TestConfig) ->
         ok,
         emqx_authn_mnesia:import_users(
             Tenant,
+            sample_filename_and_data(plain, <<"user-credentials-plain.json">>),
+            State
+        )
+    ),
+
+    ?assertEqual(
+        ok,
+        emqx_authn_mnesia:import_users(
+            Tenant,
             sample_filename_and_data(<<"user-credentials.csv">>),
+            State
+        )
+    ),
+
+    ?assertEqual(
+        ok,
+        emqx_authn_mnesia:import_users(
+            Tenant,
+            sample_filename_and_data(plain, <<"user-credentials-plain.csv">>),
             State
         )
     ),
@@ -285,7 +303,7 @@ t_import_users(TestConfig) ->
         {error, {unsupported_file_format, _}},
         emqx_authn_mnesia:import_users(
             Tenant,
-            {<<"/file/with/unknown.extension">>, <<>>},
+            {hash, <<"/file/with/unknown.extension">>, <<>>},
             State
         )
     ),
@@ -294,7 +312,7 @@ t_import_users(TestConfig) ->
         {error, unknown_file_format},
         emqx_authn_mnesia:import_users(
             Tenant,
-            {<<"/file/with/no/extension">>, <<>>},
+            {hash, <<"/file/with/no/extension">>, <<>>},
             State
         )
     ),
@@ -335,9 +353,12 @@ sample_filename(Name) ->
     filename:join([Dir, <<"data">>, Name]).
 
 sample_filename_and_data(Name) ->
+    sample_filename_and_data(hash, Name).
+
+sample_filename_and_data(Type, Name) ->
     Filename = sample_filename(Name),
     {ok, Data} = file:read_file(Filename),
-    {Filename, Data}.
+    {Type, Filename, Data}.
 
 config() ->
     #{
