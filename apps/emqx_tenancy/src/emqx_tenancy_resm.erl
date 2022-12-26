@@ -15,7 +15,6 @@
 %%--------------------------------------------------------------------
 
 %% @doc Tenant resources manager. It's responsible for
-%% - Create/Update/Delete quotas, limiters once tenant created/updated/deleted
 %% - Monitor tenant connections
 %% - Clear connections once tenant deleted/disabled
 -module(emqx_tenancy_resm).
@@ -40,7 +39,6 @@
     code_change/3
 ]).
 
-%% tenant_id => conn
 -define(CONNS_TAB, emqx_tenancy_conns).
 
 -type state() :: #{
