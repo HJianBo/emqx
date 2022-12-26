@@ -45,7 +45,7 @@ init_per_suite(Config) ->
                 <<"max_authz_rules">> => 1
             }
         },
-        <<"status">> => enabled,
+        <<"enabled">> => true,
         <<"desc">> => <<>>
     }),
     Config.

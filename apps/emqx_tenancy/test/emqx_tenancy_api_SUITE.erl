@@ -88,7 +88,7 @@ t_create(_Config) ->
             <<"created_at">> := _,
             <<"updated_at">> := _,
             <<"desc">> := _,
-            <<"status">> := <<"enabled">>,
+            <<"enabled">> := true,
             <<"id">> := Id
         },
         Create
@@ -135,11 +135,11 @@ t_update(_Config) ->
     Change = #{
         id => Id,
         desc => <<"NoteVersion1"/utf8>>,
-        status => disabled
+        enabled => false
     },
     {ok, Update1} = update_tenant(Id, Change),
     ?assertEqual(Id, maps:get(<<"id">>, Update1)),
-    ?assertEqual(<<"disabled">>, maps:get(<<"status">>, Update1)),
+    ?assertEqual(false, maps:get(<<"enabled">>, Update1)),
     ?assertEqual(<<"NoteVersion1"/utf8>>, maps:get(<<"desc">>, Update1)),
     ?assertEqual({error, {"HTTP/1.1", 400, "Bad Request"}}, update_tenant(<<"Not-Exist">>, Change)),
     ?assertEqual(
@@ -211,7 +211,7 @@ create_tenant(Id) ->
     Tenant = #{
         id => Id,
         desc => <<"Note"/utf8>>,
-        status => enabled
+        enabled => true
     },
     case request(post, Uri, Tenant) of
         {ok, 201, Res} -> {ok, emqx_json:decode(Res, [return_maps])};

@@ -80,7 +80,7 @@
 -record(tenant, {
     id :: tenant_id() | '_' | undefined,
     configs :: config() | '_' | undefined,
-    status :: enabled | disabled | '_',
+    enabled :: true | false | '_',
     desc :: binary() | '_',
     created_at :: emqx_datetime:epoch_second() | '_' | undefined,
     updated_at :: emqx_datetime:epoch_second() | '_' | undefined

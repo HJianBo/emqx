@@ -136,14 +136,14 @@ do_update(Tenant = #{<<"id">> := Id}) ->
         [Prev] ->
             #tenant{
                 configs = Configs,
-                status = Status,
+                enabled = Enabled,
                 created_at = CreatedAt,
                 desc = Desc
             } = Prev,
             NewTenant = Prev#tenant{
                 desc = maps:get(<<"desc">>, Tenant, Desc),
                 configs = maps:get(<<"configs">>, Tenant, Configs),
-                status = maps:get(<<"status">>, Tenant, Status),
+                enabled = maps:get(<<"enabled">>, Tenant, Enabled),
                 created_at = CreatedAt,
                 updated_at = now_second()
             },
@@ -162,7 +162,7 @@ format(Tenants) when is_list(Tenants) ->
 format(#tenant{
     id = Id,
     configs = Configs,
-    status = Status,
+    enabled = Enabled,
     updated_at = UpdatedAt,
     created_at = CreatedAt,
     desc = Desc
@@ -170,7 +170,7 @@ format(#tenant{
     #{
         id => Id,
         configs => Configs,
-        status => Status,
+        enabled => Enabled,
         created_at => to_rfc3339(CreatedAt),
         updated_at => to_rfc3339(UpdatedAt),
         desc => Desc
@@ -183,14 +183,14 @@ to_tenant(Tenant) ->
     #{
         <<"id">> := Id,
         <<"configs">> := Configs,
-        <<"status">> := Status,
+        <<"enabled">> := Enabled,
         <<"desc">> := Desc
     } = Tenant,
     Configs1 = emqx_map_lib:deep_merge(default_configs(), Configs),
     #tenant{
         id = Id,
         configs = Configs1,
-        status = Status,
+        enabled = Enabled,
         desc = Desc
     }.
 

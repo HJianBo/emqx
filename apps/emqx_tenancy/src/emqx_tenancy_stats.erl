@@ -488,7 +488,7 @@ rate(Val1, Val0, Second) ->
     (Val1 - Val0) div Second.
 
 get_enabled_tenant() ->
-    Spec = ets:fun2ms(fun(#tenant{status = enabled, id = Id}) -> Id end),
+    Spec = ets:fun2ms(fun(#tenant{enabled = true, id = Id}) -> Id end),
     ets:select(?TENANCY, Spec).
 
 save_stats_to_db() ->

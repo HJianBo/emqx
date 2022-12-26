@@ -32,7 +32,7 @@
 -define(NOT_FOUND_RESPONSE, #{code => 'NOT_FOUND', message => <<"Name NOT FOUND">>}).
 
 -define(QS_SCHEMA, [
-    {<<"status">>, atom},
+    {<<"enabled">>, atom},
     {<<"like_id">>, binary},
     {<<"gte_created_at">>, timestamp},
     {<<"lte_created_at">>, timestamp},
@@ -226,13 +226,13 @@ tenant_field(Required) ->
                 }
             )},
         {configs, ?HOCON(?REF(tenant_configs), #{required => Required})},
-        {status,
+        {enabled,
             ?HOCON(
-                ?ENUM([disabled, enabled]),
+                ?ENUM([true, false]),
                 #{
-                    desc => "The status of the tenant",
+                    desc => "Whether to enable this tenant",
                     required => Required,
-                    default => enabled
+                    default => true
                 }
             )},
         {desc,
@@ -338,8 +338,8 @@ qs2ms(Qs) ->
 
 qs2ms([], _, {MatchHead, Cond}) ->
     {MatchHead, lists:reverse(Cond)};
-qs2ms([{status, '=:=', Status} | Rest], N, {MatchHead, Cond}) ->
-    NMatchHead = MatchHead#tenant{status = Status},
+qs2ms([{enabled, '=:=', Status} | Rest], N, {MatchHead, Cond}) ->
+    NMatchHead = MatchHead#tenant{enabled = Status},
     qs2ms(Rest, N, {NMatchHead, Cond});
 qs2ms([Qs | Rest], N, {MatchHead, Cond}) when
     element(1, Qs) =:= updated_at orelse element(1, Qs) =:= created_at
