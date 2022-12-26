@@ -80,7 +80,7 @@ next_interval() ->
     {NextTime div 1000, Remaining}.
 
 sample(Time) ->
-    Spec = ets:fun2ms(fun(#tenant{status = enabled, id = Id}) -> Id end),
+    Spec = ets:fun2ms(fun(#tenant{enabled = true, id = Id}) -> Id end),
     case ets:select(?TENANCY, Spec, ?LIMIT) of
         '$end_of_table' -> ok;
         {Tenants, Continuation} -> sample(Time, Tenants, Continuation)

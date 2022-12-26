@@ -86,7 +86,14 @@ handle_cast({monitor_session_proc, Pid, TenantId, ClientId}, State = #{pmon := P
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({mnesia_table_event, {write, _Tenant, _ActivityId}}, State) ->
+handle_info({mnesia_table_event, {write, Tenant, _ActivityId}}, State) ->
+    %% Note: the Tenant's record name is emqx_tenacy not tenant
+    case fix_record_name(Tenant) of
+        #tenant{id = TenantId, enabled = false} ->
+            kick_all_session(TenantId);
+        #tenant{} ->
+            ok
+    end,
     {noreply, State};
 handle_info({mnesia_table_event, {delete, {_Tab, TenantId}, _ActivityId}}, State) ->
     kick_all_session(TenantId),
@@ -135,3 +142,6 @@ kick_all_session(TenantId) ->
         tenant_id => TenantId,
         count => length(List)
     }).
+
+fix_record_name(T) ->
+    setelement(1, T, tenant).

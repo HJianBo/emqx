@@ -55,6 +55,9 @@
 ]).
 -export([acquire/3, release/3]).
 
+%% for tests
+-export([is_tenant_enabled/1]).
+
 -type state() :: #{
     %% 0 means sync to mnesia immediately
     delayed_submit_ms := non_neg_integer(),
@@ -124,7 +127,7 @@ load() ->
     emqx_hooks:put('quota.authn_users', {?MODULE, on_quota_authn_users, []}, 0),
     emqx_hooks:put('quota.authz_rules', {?MODULE, on_quota_authz_rules, []}, 0).
 
-%% @doc Unload tenanct limiter
+%% @doc Unload tenant limiter
 %% It's only works for new sessions
 -spec unload() -> ok.
 unload() ->
@@ -208,19 +211,36 @@ cast(Msg) ->
 on_quota_sessions(_Action, #{tenant_id := ?NO_TENANT}, _LastPermision) ->
     {stop, allow};
 on_quota_sessions(Action, ClientInfo = #{tenant_id := TenantId}, _LastPermision) ->
-    Res = exec_quota_action(Action, [TenantId, sessions]),
-    case is_acquire_action(Action) andalso Res of
-        {stop, allow} ->
-            ClientId = maps:get(clientid, ClientInfo),
-            emqx_tenancy_resm:monitor_session_proc(
-                self(),
-                TenantId,
-                ClientId
-            );
-        _ ->
-            ok
-    end,
-    Res.
+    case is_acquire_action(Action) of
+        true ->
+            case ?MODULE:is_tenant_enabled(TenantId) of
+                true ->
+                    Res = exec_quota_action(Action, [TenantId, sessions]),
+                    case Res of
+                        {stop, allow} ->
+                            ClientId = maps:get(clientid, ClientInfo),
+                            emqx_tenancy_resm:monitor_session_proc(
+                                self(),
+                                TenantId,
+                                ClientId
+                            );
+                        _ ->
+                            ok
+                    end,
+                    Res;
+                false ->
+                    io:format("disabled failed\n"),
+                    {stop, deny}
+            end;
+        false ->
+            exec_quota_action(Action, [TenantId, sessions])
+    end.
+
+is_tenant_enabled(TenantId) ->
+    case ets:lookup(?TENANCY, TenantId) of
+        [] -> false;
+        [#tenant{enabled = Enabled}] -> Enabled == true
+    end.
 
 -spec on_quota_authn_users(quota_action(), tenant_id(), term()) -> permision().
 on_quota_authn_users(_Action, ?NO_TENANT, _LastPermision) ->
