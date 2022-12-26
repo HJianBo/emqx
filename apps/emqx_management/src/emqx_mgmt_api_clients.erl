@@ -893,6 +893,7 @@ run_fuzzy_filter(E = {_, #{clientinfo := ClientInfo}, _}, [{Key, like, SubStr} |
     Val =
         case maps:get(Key, ClientInfo, <<>>) of
             undefined -> <<>>;
+            V when Key == clientid -> emqx_clientid:without_tenant(V);
             V -> V
         end,
     binary:match(Val, SubStr) /= nomatch andalso run_fuzzy_filter(E, Fuzzy).

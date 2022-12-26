@@ -229,7 +229,6 @@ on_quota_sessions(Action, ClientInfo = #{tenant_id := TenantId}, _LastPermision)
                     end,
                     Res;
                 false ->
-                    io:format("disabled failed\n"),
                     {stop, deny}
             end;
         false ->
