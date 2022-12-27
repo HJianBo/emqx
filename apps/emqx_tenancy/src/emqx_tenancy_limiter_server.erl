@@ -20,6 +20,7 @@
 
 -include("emqx_tenancy.hrl").
 -include_lib("stdlib/include/ms_transform.hrl").
+-include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
 %% APIs
 -export([start_link/2]).
@@ -169,6 +170,7 @@ handle_info({timeout, _Ref, rebalance}, State = #{tenant_id := TenantId, limiter
     NewStats = fetch_current_stats(TenantId),
     NState = rebalance(Usages, NewStats, State),
     ok = report_usage(TenantId, Usages),
+    ?tp(debug, rebalanced, #{}),
     {noreply, ensure_rebalance_timer(NState#{tref := undefined})};
 %% TODO: handle process down
 handle_info(_Info, State) ->
