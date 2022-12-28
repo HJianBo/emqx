@@ -921,7 +921,8 @@ format_channel_info(WhichNode, {_, ClientInfo0, ClientStats}) ->
     ClientInfoMap3 = maps:put(ip_address, IpAddress, ClientInfoMap2),
     ClientInfoMap4 = maps:put(port, Port, ClientInfoMap3),
     ClientInfoMap5 = maps:put(connected, Connected, ClientInfoMap4),
-    ClientInfoMap = uncompound_clientid(ClientInfoMap5),
+    ClientInfoMap6 = convert_expiry_interval_unit(ClientInfoMap5),
+    ClientInfoMap = uncompound_clientid(ClientInfoMap6),
 
     RemoveList =
         [
@@ -985,11 +986,12 @@ result_format_undefined_to_null(Map) ->
         Map
     ).
 
-uncompound_clientid(ClientInfoMap = #{tenant_id := Tenant, clientid := GroupedClientId}) ->
-    ClientID = emqx_clientid:without_tenant(GroupedClientId),
+convert_expiry_interval_unit(ClientInfoMap = #{expiry_interval := Interval}) ->
+    ClientInfoMap#{expiry_interval := Interval div 1000}.
+
+uncompound_clientid(ClientInfoMap = #{clientid := GroupedClientId}) ->
     ClientInfoMap#{
-        tenant_id => Tenant,
-        clientid => ClientID
+        clientid => emqx_clientid:without_tenant(GroupedClientId)
     }.
 
 -spec peername_dispart(emqx_types:peername()) -> {binary(), inet:port_number()}.
