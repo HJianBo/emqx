@@ -67,7 +67,6 @@
     {<<"ip_address">>, ip},
     {<<"conn_state">>, atom},
     {<<"clean_start">>, atom},
-    {<<"proto_name">>, binary},
     {<<"proto_ver">>, integer},
     {<<"tenant_id">>, binary},
     {<<"like_tenant_id">>, binary},
@@ -148,14 +147,6 @@ schema("/clients") ->
                         in => query,
                         required => false,
                         description => <<"Whether the client uses a new session">>
-                    })},
-                {proto_name,
-                    hoconsc:mk(hoconsc:enum(['MQTT', 'CoAP', 'LwM2M', 'MQTT-SN']), #{
-                        in => query,
-                        required => false,
-                        description =>
-                            <<"Client protocol name, ",
-                                "the possible values are MQTT,CoAP,LwM2M,MQTT-SN">>
                     })},
                 {proto_ver,
                     hoconsc:mk(binary(), #{
@@ -870,8 +861,6 @@ ms(ip_address, X) ->
     #{conninfo => #{peername => {X, '_'}}};
 ms(clean_start, X) ->
     #{conninfo => #{clean_start => X}};
-ms(proto_name, X) ->
-    #{conninfo => #{proto_name => X}};
 ms(proto_ver, X) ->
     #{conninfo => #{proto_ver => X}};
 ms(connected_at, X) ->
