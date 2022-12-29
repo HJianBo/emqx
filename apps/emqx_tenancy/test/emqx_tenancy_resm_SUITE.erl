@@ -23,6 +23,7 @@
 -include_lib("eunit/include/eunit.hrl").
 
 -define(TENANT_FOO, <<"tenant_foo">>).
+-define(HOST, <<"tenant_foo.emqxserver.io">>).
 
 %%--------------------------------------------------------------------
 %% setup
@@ -35,20 +36,12 @@ init_per_suite(Config) ->
         [emqx_conf, emqx_authn, emqx_authz, emqx_tenancy],
         fun set_special_configs/1
     ),
-    %% create tenant
-    {ok, _} = emqx_tenancy:create(#{
-        <<"id">> => ?TENANT_FOO,
-        <<"configs">> => #{
-            <<"quotas">> => #{
-                <<"max_sessions">> => 1,
-                <<"max_auhtn_users">> => 1,
-                <<"max_authz_rules">> => 1
-            }
-        },
-        <<"enabled">> => true,
-        <<"desc">> => <<>>
-    }),
-    Config.
+    ok = create_tenant(?TENANT_FOO),
+    ClientFn = emqx_tenant_test_helpers:reload_listener_with_ppv2(
+        [listeners, tcp, default],
+        ?HOST
+    ),
+    [{client_fn, ClientFn} | Config].
 
 end_per_suite(_) ->
     %% revert to default value
@@ -60,7 +53,8 @@ end_per_suite(_) ->
             <<"sources">> => []
         }
     ),
-    ok = emqx_tenancy:delete(?TENANT_FOO),
+    ok = delete_tenant(?TENANT_FOO),
+    emqx_tenant_test_helpers:reload_listener_without_ppv2([listeners, tcp, default]),
     emqx_dashboard_api_test_helpers:end_suite([emqx_tenancy, emqx_authz, emqx_authn, emqx_conf]).
 
 set_special_configs(emqx) ->
@@ -77,8 +71,57 @@ set_special_configs(_) ->
 %% tests
 %%--------------------------------------------------------------------
 
-t_release_sessions_quota(_) ->
+t_client_disconnected(Config) ->
+    ClientFn = proplists:get_value(client_fn, Config),
+    ClientId = <<"clientid">>,
+
+    {ok, ClientPid} = ClientFn(ClientId, #{proto_ver => v5}),
+    ?assertMatch(
+        {ok, #{sessions := #{max := 5, used := 1}}},
+        emqx_tenancy_quota:info(?TENANT_FOO)
+    ),
+
+    emqtt:disconnect(ClientPid),
+    timer:sleep(1000),
+    ?assertMatch(
+        {ok, #{sessions := #{max := 5, used := 0}}},
+        emqx_tenancy_quota:info(?TENANT_FOO)
+    ),
     ok.
 
-t_kick_tenancy_sessions(_) ->
+t_tenant_deleted(Config) ->
+    process_flag(trap_exit, true),
+    ClientFn = proplists:get_value(client_fn, Config),
+    ClientId = <<"clientid">>,
+    {ok, ClientPid} = ClientFn(ClientId, #{proto_ver => v5}),
+    ?assertMatch(
+        {ok, #{sessions := #{max := 5, used := 1}}},
+        emqx_tenancy_quota:info(?TENANT_FOO)
+    ),
+
+    ok = delete_tenant(?TENANT_FOO),
+    timer:sleep(1000),
+    ?assertMatch(false, erlang:is_process_alive(ClientPid)),
+    ok = create_tenant(?TENANT_FOO),
     ok.
+
+%%--------------------------------------------------------------------
+%% helper
+
+create_tenant(Id) ->
+    {ok, _} = emqx_tenancy:create(#{
+        <<"id">> => Id,
+        <<"configs">> => #{
+            <<"quotas">> => #{
+                <<"max_sessions">> => 5,
+                <<"max_auhtn_users">> => 1,
+                <<"max_authz_rules">> => 1
+            }
+        },
+        <<"enabled">> => true,
+        <<"desc">> => <<>>
+    }),
+    ok.
+
+delete_tenant(Id) ->
+    ok = emqx_tenancy:delete(Id).

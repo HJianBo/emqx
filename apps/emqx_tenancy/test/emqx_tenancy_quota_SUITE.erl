@@ -83,9 +83,6 @@ t_no_submit_delay_on_single_node(_) ->
     deny = emqx_hooks:run_fold('quota.sessions', [acquire, clientinfo()], allow),
     ok.
 
-t_connection_crash(_) ->
-    ok.
-
 t_reload_authn_authz_usage(_) ->
     ok.
 

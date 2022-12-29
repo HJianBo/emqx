@@ -64,10 +64,13 @@ paths() ->
 %%--------------------------------------------------------------------
 %% http handlers
 
-import_users(post, #{
-    bindings := #{name := Name0},
-    body := Body
-}) ->
+import_users(
+    post,
+    Req = #{
+        bindings := #{name := Name0},
+        body := Body
+    }
+) ->
     with_authn(Name0, fun(
         _GwName,
         #{
@@ -80,9 +83,10 @@ import_users(post, #{
                 emqx_authn_api:serialize_error({missing_parameter, filename});
             File ->
                 [{FileName, FileData}] = maps:to_list(maps:without([type], File)),
+                PasswordType = password_type(Req),
                 case
                     emqx_authentication:import_users(
-                        ChainName, AuthId, ?NO_TENANT, {FileName, FileData}
+                        ChainName, AuthId, ?NO_TENANT, {PasswordType, FileName, FileData}
                     )
                 of
                     ok -> {204};
@@ -91,10 +95,13 @@ import_users(post, #{
         end
     end).
 
-import_listener_users(post, #{
-    bindings := #{name := Name0, id := Id},
-    body := Body
-}) ->
+import_listener_users(
+    post,
+    Req = #{
+        bindings := #{name := Name0, id := Id},
+        body := Body
+    }
+) ->
     with_listener_authn(
         Name0,
         Id,
@@ -104,9 +111,10 @@ import_listener_users(post, #{
                     emqx_authn_api:serialize_error({missing_parameter, filename});
                 File ->
                     [{FileName, FileData}] = maps:to_list(maps:without([type], File)),
+                    PasswordType = password_type(Req),
                     case
                         emqx_authentication:import_users(
-                            ChainName, AuthId, ?NO_TENANT, {FileName, FileData}
+                            ChainName, AuthId, ?NO_TENANT, {PasswordType, FileName, FileData}
                         )
                     of
                         ok -> {204};
@@ -128,7 +136,8 @@ schema("/gateways/:name/authentication/import_users") ->
                 tags => ?TAGS,
                 desc => ?DESC(emqx_gateway_api_authn, import_users),
                 summary => <<"Import Users">>,
-                parameters => params_gateway_name_in_path(),
+                parameters => params_gateway_name_in_path() ++
+                    params_password_type(),
                 'requestBody' => emqx_dashboard_swagger:file_schema(filename),
                 responses =>
                     ?STANDARD_RESP(#{204 => <<"Imported">>})
@@ -143,7 +152,8 @@ schema("/gateways/:name/listeners/:id/authentication/import_users") ->
                 desc => ?DESC(emqx_gateway_api_listeners, import_users),
                 summary => <<"Import Users">>,
                 parameters => params_gateway_name_in_path() ++
-                    params_listener_id_in_path(),
+                    params_listener_id_in_path() ++
+                    params_password_type(),
                 'requestBody' => emqx_dashboard_swagger:file_schema(filename),
                 responses =>
                     ?STANDARD_RESP(#{204 => <<"Imported">>})
@@ -181,3 +191,26 @@ params_listener_id_in_path() ->
                 }
             )}
     ].
+
+params_password_type() ->
+    [
+        {type,
+            mk(
+                binary(),
+                #{
+                    in => query,
+                    enum => [<<"plain">>, <<"hash">>],
+                    required => true,
+                    desc => <<
+                        "The import file template type, enum with `plain`,"
+                        "`hash`"
+                    >>,
+                    example => <<"hash">>
+                }
+            )}
+    ].
+
+password_type(_Req = #{query_string := #{<<"type">> := Type}}) ->
+    binary_to_existing_atom(Type);
+password_type(_) ->
+    hash.
