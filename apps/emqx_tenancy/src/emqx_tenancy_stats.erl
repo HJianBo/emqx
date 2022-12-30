@@ -300,7 +300,7 @@ disable_hooks() ->
     ok.
 
 sample_timer() ->
-    erlang:send_after(2000, self(), sample).
+    erlang:send_after(1000, self(), sample).
 
 save_timer() ->
     erlang:send_after(60 * 1000, self(), save_stats_to_db).
