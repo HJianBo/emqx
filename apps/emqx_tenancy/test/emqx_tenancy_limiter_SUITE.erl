@@ -93,6 +93,15 @@ t_limited(_) ->
     ?assertMatch(#{}, emqx_tenancy_limiter:info(TenantIdA)),
     ?assertMatch(#{}, emqx_tenancy_limiter:info(TenantIdB)),
 
+    ok = emqx_tenancy:delete(TenantIdA),
+    ok = emqx_tenancy:delete(TenantIdB),
+    ok.
+
+t_re_create(_) ->
+    TenantId = <<"tenant_a">>,
+    ok = emqx_tenancy_limiter:create(TenantId, #{max_messages_in => 100}),
+    %% create limiter server twice
+    ok = emqx_tenancy_limiter:create(TenantId, #{max_messages_in => 10}),
     ok.
 
 t_misc(_) ->

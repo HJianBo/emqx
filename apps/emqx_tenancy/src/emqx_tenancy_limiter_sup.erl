@@ -99,9 +99,15 @@ start_child(TenantId, Config) ->
         shutdown => 5000
     },
     case supervisor:start_child(?MODULE, Spec) of
-        {ok, Pid} -> {ok, Pid};
-        {ok, Pid, _Info} -> {ok, Pid};
-        {error, _} = Err -> Err
+        {ok, Pid} ->
+            {ok, Pid};
+        {ok, Pid, _Info} ->
+            {ok, Pid};
+        {error, {already_started, Pid}} when is_pid(Pid) ->
+            ok = emqx_tenancy_limiter_server:update(Pid, Config),
+            {ok, Pid};
+        {error, _} = Err ->
+            Err
     end.
 
 find_sup_child(Sup, ChildId) ->
