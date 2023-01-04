@@ -155,7 +155,7 @@ on_client_check_authz_complete(#{tenant_id := TenantId}, _PubSub, _Topic, Result
     end,
     ok.
 
-on_client_check_authn_complete(#{clientid := {Tenant, _}}, {error, not_authorized}) ->
+on_client_check_authn_complete(#{clientid := {Tenant, _}}, {error, _}) ->
     update_counter(Tenant, [{#stats.auth_failed, 1}], #stats{
         tenant_id = Tenant, auth_failed = 1
     });
