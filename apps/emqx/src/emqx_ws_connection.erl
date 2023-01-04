@@ -557,7 +557,9 @@ handle_timeout(
     }
 ) ->
     ClientId = emqx_channel:info(clientid, Channel),
-    emqx_cm:set_chan_stats(ClientId, stats(State)),
+    Stats = stats(State),
+    emqx_cm:set_chan_stats(ClientId, Stats),
+    emqx_tenancy_stats:update_stats(ClientId, Stats),
     return(State#state{stats_timer = undefined});
 handle_timeout(TRef, TMsg, State) ->
     with_channel(handle_timeout, [TRef, TMsg], State).
