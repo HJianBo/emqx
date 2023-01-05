@@ -23,7 +23,7 @@
 -export([start/2, stop/1]).
 
 start(_StartType, _StartArgs) ->
-    ok = mria_rlog:wait_for_shards([?COMMON_SHARD], infinity),
+    ok = mria_rlog:wait_for_shards([?COMMON_SHARD, ?TENANCY_SHARD], infinity),
     {ok, Sup} = emqx_tenancy_sup:start_link(),
     ok = emqx_tenancy_limiter:load(),
     ok = emqx_tenancy_quota:load(),

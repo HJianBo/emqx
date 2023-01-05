@@ -469,9 +469,9 @@ submit(
                 State;
             Need ->
                 Need1 = do_submit(Now, Need),
+                ?tp(debug, submit, #{}),
                 State#{buffer := maps:merge(Buffer, Need1)}
         end,
-    ?tp(debug, submit, #{}),
     NState.
 
 max_abs_diff(Usage) when is_record(Usage, usage) ->
@@ -528,13 +528,26 @@ do_acquire(N, TenantId, Resource, Buffer) ->
             {deny, Buffer};
         {Usage, LastSubmitTs} ->
             Pos = position(Resource),
-            #{max := Max, used := Used0} = ets:lookup_element(?USAGE_TAB, TenantId, Pos),
-            #{used := Used} = element(Pos, Usage),
-            case Max >= Used0 + Used + N of
-                true ->
-                    TBuffer = {incr(Resource, N, Usage), LastSubmitTs},
-                    {allow, Buffer#{TenantId => TBuffer}};
-                false ->
+            try ets:lookup_element(?USAGE_TAB, TenantId, Pos) of
+                #{max := Max, used := Used0} ->
+                    #{used := Used} = element(Pos, Usage),
+                    case Max >= Used0 + Used + N of
+                        true ->
+                            TBuffer = {incr(Resource, N, Usage), LastSubmitTs},
+                            {allow, Buffer#{TenantId => TBuffer}};
+                        false ->
+                            {deny, Buffer}
+                    end
+            catch
+                error:badarg ->
+                    ?SLOG(
+                        warning,
+                        #{
+                            msg => "dataset_gone_when_acquire_token",
+                            tenant_id => TenantId,
+                            resource => Resource
+                        }
+                    ),
                     {deny, Buffer}
             end
     end.
@@ -552,7 +565,7 @@ do_release(N, TenantId, Resource, Buffer) ->
 %% helpers
 
 trans(Fun) ->
-    case mria:transaction(?COMMON_SHARD, Fun) of
+    case mria:transaction(?TENANCY_SHARD, Fun, []) of
         {atomic, ok} -> ok;
         {atomic, Res} -> {ok, Res};
         {aborted, Error} -> {error, Error}
