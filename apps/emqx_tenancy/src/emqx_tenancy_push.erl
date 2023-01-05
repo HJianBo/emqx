@@ -104,5 +104,5 @@ sample(Time, Tenants, Continuation) ->
     _ = emqx_broker:safe_publish(Message),
     case ets:select(Continuation) of
         '$end_of_table' -> ok;
-        {Tenants, NewContinuation} -> sample(Time, Tenants, NewContinuation)
+        {NewTenants, NewContinuation} -> sample(Time, NewTenants, NewContinuation)
     end.
