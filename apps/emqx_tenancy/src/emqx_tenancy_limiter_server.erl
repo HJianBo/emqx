@@ -22,6 +22,10 @@
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+%% Mnesia
+-export([mnesia/1]).
+-boot_mnesia({mnesia, [boot]}).
+
 %% APIs
 -export([start_link/2]).
 
@@ -68,6 +72,26 @@
 -define(DEFAULT_TIMEOUT, 5000).
 
 %%--------------------------------------------------------------------
+%% Mnesia
+%%--------------------------------------------------------------------
+
+-spec mnesia(boot) -> ok.
+mnesia(boot) ->
+    ok = mria:create_table(?STATS_TAB, [
+        {type, set},
+        {rlog_shard, ?TENANCY_SHARD},
+        {storage, ram_copies},
+        {record_name, stats},
+        {attributes, record_info(fields, stats)},
+        {storage_properties, [
+            {ets, [
+                {read_concurrency, true},
+                {write_concurrency, true}
+            ]}
+        ]}
+    ]).
+
+%%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
 
@@ -99,7 +123,6 @@ call(Pid, Msg) ->
 -spec init(list()) -> {ok, state()}.
 init([TenantId, Cfg]) ->
     process_flag(trap_exit, true),
-    ok = ensure_table_created(),
     Limiters = start_limiter_servers(TenantId, Cfg),
     State = #{
         tenant_id => TenantId,
@@ -109,21 +132,6 @@ init([TenantId, Cfg]) ->
         tref => undefined
     },
     {ok, ensure_rebalance_timer(State)}.
-
-ensure_table_created() ->
-    ok = mria:create_table(?STATS_TAB, [
-        {type, set},
-        {rlog_shard, ?TENANCY_SHARD},
-        {storage, ram_copies},
-        {record_name, stats},
-        {attributes, record_info(fields, stats)},
-        {storage_properties, [
-            {ets, [
-                {read_concurrency, true},
-                {write_concurrency, true}
-            ]}
-        ]}
-    ]).
 
 handle_call(info, _From, State = #{limiters := Limiters}) ->
     Infos = maps:fold(

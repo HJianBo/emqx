@@ -21,6 +21,10 @@
 
 -behaviour(gen_server).
 
+%% Mnesia
+-export([mnesia/1]).
+-boot_mnesia({mnesia, [boot]}).
+
 %% APIs
 -export([start_link/1, stop/0]).
 -export([load/0, unload/0]).
@@ -31,11 +35,11 @@
 %% Node level APIs
 -export([do_create/2, do_update/2, do_remove/1, do_info/1]).
 
--define(USAGE_TAB, emqx_tenancy_usage).
+-define(COUNTER, emqx_tenancy_quota_counter).
 
 -define(DEFAULT_SUBMIT_DELAY, 100).
+
 -define(DEFAULT_SUBMIT_DIFF, 10).
--define(BATCH_SIZE, 100000).
 
 %% gen_server callbacks
 -export([
@@ -63,7 +67,7 @@
     delayed_submit_ms := non_neg_integer(),
     %% How much delayed count is allowed
     delayed_submit_diff := non_neg_integer(),
-    %% local schema and buffer
+    %% local buffer
     buffer := #{tenant_id() => {usage(), LastSubmitTs :: pos_integer()}}
 }.
 
@@ -72,32 +76,45 @@
     delayed_submit_diff => non_neg_integer()
 }.
 
--record(usage, {
-    id :: tenant_id(),
-    sessions :: usage_counter(),
-    authn_users :: usage_counter(),
-    authz_rules :: usage_counter(),
-    subs :: usage_counter(),
-    retained :: usage_counter(),
-    rules :: usage_counter(),
-    resources :: usage_counter(),
-    shared_subs :: usage_counter()
-}).
-
--type usage() :: #usage{}.
+-type usage() :: #{
+    sessions := usage_counter(),
+    authn_users := usage_counter(),
+    authz_rules := usage_counter(),
+    atom() => usage_counter()
+}.
 
 -type usage_info() :: #{
     sessions := usage_counter(),
     authn_users := usage_counter(),
     authz_rules := usage_counter(),
-    subs := usage_counter(),
-    retained := usage_counter(),
-    rules := usage_counter(),
-    resources := usage_counter(),
-    shared_subs := usage_counter()
+    atom() => usage_counter()
+    %% XXX: 2.0
+    %%subs := usage_counter(),
+    %%retained := usage_counter(),
+    %%rules := usage_counter(),
+    %%resources := usage_counter(),
+    %%shared_subs := usage_counter()
 }.
 
 -type usage_counter() :: #{max := pos_integer(), used := non_neg_integer()}.
+
+%%--------------------------------------------------------------------
+%% Mnesia
+%%--------------------------------------------------------------------
+
+-spec mnesia(boot) -> ok.
+mnesia(boot) ->
+    ok = mria:create_table(?COUNTER, [
+        {type, set},
+        {rlog_shard, ?TENANCY_SHARD},
+        {storage, ram_copies},
+        {storage_properties, [
+            {ets, [
+                {read_concurrency, true},
+                {write_concurrency, true}
+            ]}
+        ]}
+    ]).
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -271,7 +288,7 @@ acquire(N, TenantId, Resource) ->
     end.
 
 release(N, TenantId, Resource) ->
-    try ets:lookup_element(?USAGE_TAB, TenantId, position(Resource)) of
+    try unsafe_lookup_counter(TenantId, Resource) of
         _ ->
             cast({released, N, TenantId, Resource}),
             {stop, allow}
@@ -280,19 +297,6 @@ release(N, TenantId, Resource) ->
             {stop, deny}
     end.
 
-position(Resource) ->
-    P = #{
-        sessions => #usage.sessions,
-        authn_users => #usage.authn_users,
-        authz_rules => #usage.authz_rules,
-        subs => #usage.subs,
-        retained => #usage.retained,
-        rules => #usage.rules,
-        resources => #usage.resources,
-        shared_subs => #usage.shared_subs
-    },
-    maps:get(Resource, P).
-
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
@@ -300,19 +304,6 @@ position(Resource) ->
 -spec init([options()]) -> {ok, state()}.
 init([Options]) ->
     process_flag(trap_exit, true),
-    ok = mria:create_table(?USAGE_TAB, [
-        {type, set},
-        {rlog_shard, ?TENANCY_SHARD},
-        {storage, ram_copies},
-        {record_name, usage},
-        {attributes, record_info(fields, usage)},
-        {storage_properties, [
-            {ets, [
-                {read_concurrency, true},
-                {write_concurrency, true}
-            ]}
-        ]}
-    ]),
     State = #{
         delayed_submit_ms => maps:get(delayed_submit_ms, Options),
         delayed_submit_diff => maps:get(delayed_submit_diff, Options),
@@ -325,37 +316,21 @@ handle_call(
     _From,
     State = #{buffer := Buffer}
 ) ->
-    Usage = config_to_usage(TenantId, Config),
-    case maps:get(TenantId, Buffer, undefined) of
-        undefined ->
-            ok = trans(fun() -> mnesia:write(?USAGE_TAB, Usage, write) end);
-        {BufferedUsage, _} ->
-            Usage1 = update_usage_record(Usage, BufferedUsage),
-            ok = trans(fun() ->
-                case mnesia:read(?USAGE_TAB, TenantId, write) of
-                    [] ->
-                        mnesia:write(?USAGE_TAB, Usage1, write);
-                    [TotalUsage0] ->
-                        TotalUsage = update_usage_record(Usage1, TotalUsage0),
-                        mnesia:write(?USAGE_TAB, TotalUsage, write)
-                end
-            end)
-    end,
+    Usage = init_usage(Config),
+    ok = init_counter(TenantId),
     TBuffer = {Usage, now_ts()},
     {reply, ok, State#{buffer := Buffer#{TenantId => TBuffer}}};
 handle_call({remove, TenantId}, _From, State = #{buffer := Buffer}) ->
     NBuffer = maps:remove(TenantId, Buffer),
-    ok = trans(fun() -> mnesia:delete(?USAGE_TAB, TenantId, write) end),
+    ok = clear_counter(TenantId),
     {reply, ok, State#{buffer := NBuffer}};
 handle_call({info, TenantId}, _From, State = #{buffer := Buffer}) ->
     Reply =
-        case ets:lookup(?USAGE_TAB, TenantId) of
-            [] ->
+        case maps:get(TenantId, Buffer, undefined) of
+            undefined ->
                 {error, not_found};
-            [Usage0] ->
-                {Usage1, _} = maps:get(TenantId, Buffer),
-                TotalUsage = update_usage_record(Usage0, Usage1),
-                {ok, usage_to_info(TotalUsage)}
+            {Usage, _} ->
+                {ok, apply_counter_to_usage(TenantId, Usage)}
         end,
     {reply, Reply, State};
 handle_call(
@@ -364,11 +339,11 @@ handle_call(
     State = #{buffer := Buffer}
 ) ->
     {Reply, Buffer1} = do_acquire(N, TenantId, Resource, Buffer),
-    {reply, Reply, submit(State#{buffer := Buffer1})}.
+    {reply, Reply, submit(TenantId, State#{buffer := Buffer1})}.
 
 handle_cast({released, N, TenantId, Resource}, State = #{buffer := Buffer}) ->
     Buffer1 = do_release(N, TenantId, Resource, Buffer),
-    {noreply, submit(State#{buffer := Buffer1})}.
+    {noreply, submit(TenantId, State#{buffer := Buffer1})}.
 
 handle_info(submit, State) ->
     {noreply, ensure_submit_timer(submit(State))};
@@ -386,23 +361,46 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 %%--------------------------------------------------------------------
+%% counter
+
+update_counter(TenantId, Resource, N) ->
+    mnesia:dirty_update_counter(?COUNTER, {TenantId, Resource}, N).
+
+lookup_counter(TenantId, Resource) ->
+    try
+        unsafe_lookup_counter(TenantId, Resource)
+    catch
+        error:badarg -> 0
+    end.
+
+unsafe_lookup_counter(TenantId, Resource) ->
+    ets:lookup_element(?COUNTER, {TenantId, Resource}, 3).
+
+init_counter(TenantId) ->
+    mnesia:dirty_update_counter(?COUNTER, {TenantId, sessions}, 0),
+    mnesia:dirty_update_counter(?COUNTER, {TenantId, authn_users}, 0),
+    mnesia:dirty_update_counter(?COUNTER, {TenantId, authz_rules}, 0),
+    ok.
+
+clear_counter(TenantId) ->
+    ok = mnesia:dirty_delete(?COUNTER, {TenantId, sessions}),
+    ok = mnesia:dirty_delete(?COUNTER, {TenantId, authn_users}),
+    ok = mnesia:dirty_delete(?COUNTER, {TenantId, authz_rules}).
+
+%%--------------------------------------------------------------------
 %% load
 
 load_tenants_used() ->
     AuthNUsed = scan_authn_users_table(),
     AuthZUsed = scan_authz_rules_table(),
-    RetainedUsed = scan_retained_table(),
+    NowTs = now_ts(),
     lists:foldl(
         fun(#tenant{id = Id, configs = Configs}, Acc) ->
-            Usage = config_to_usage(
-                Id,
-                emqx_tenancy:with_quota_config(Configs)
-            ),
-            Usage1 = incr(authn_users, maps:get(Id, AuthNUsed, 0), Usage),
-            Usage2 = incr(authz_rules, maps:get(Id, AuthZUsed, 0), Usage1),
-            Usage3 = incr(retained, maps:get(Id, RetainedUsed, 0), Usage2),
-            ok = trans(fun() -> mnesia:write(?USAGE_TAB, Usage3, write) end),
-            Acc#{Id => {Usage, 0}}
+            Usage = init_usage(emqx_tenancy:with_quota_config(Configs)),
+            update_counter(Id, sessions, 0),
+            update_counter(Id, authn_users, maps:get(Id, AuthNUsed, 0)),
+            update_counter(Id, authz_rules, maps:get(Id, AuthZUsed, 0)),
+            Acc#{Id => {Usage, NowTs}}
         end,
         #{},
         ets:tab2list(?TENANCY)
@@ -434,10 +432,6 @@ scan_authz_rules_table() ->
         emqx_acl
     ).
 
-scan_retained_table() ->
-    %% TODO: 2.0
-    #{}.
-
 %%--------------------------------------------------------------------
 %% submit
 
@@ -468,15 +462,42 @@ submit(
             Need when map_size(Need) =:= 0 ->
                 State;
             Need ->
-                Need1 = do_submit(Now, Need),
+                Need1 = maps:map(
+                    fun(TenantId, {Usage, _}) ->
+                        Usage1 = do_submit(TenantId, Usage),
+                        {Usage1, Now}
+                    end,
+                    Need
+                ),
                 ?tp(debug, submit, #{}),
                 State#{buffer := maps:merge(Buffer, Need1)}
         end,
     NState.
 
-max_abs_diff(Usage) when is_record(Usage, usage) ->
-    Fun = fun(I, Max) ->
-        #{used := Diff0} = element(I, Usage),
+submit(
+    TenantId,
+    State = #{
+        buffer := Buffer,
+        delayed_submit_ms := Interval,
+        delayed_submit_diff := AllowedDiff
+    }
+) ->
+    Now = now_ts(),
+    {Usage, LastSubmitTs} = maps:get(TenantId, Buffer),
+    case
+        max_abs_diff(Usage) >= AllowedDiff orelse
+            (Now - LastSubmitTs) > Interval
+    of
+        true ->
+            Usage1 = do_submit(TenantId, Usage),
+            State#{buffer := Buffer#{TenantId := {Usage1, Now}}};
+        false ->
+            State
+    end.
+
+max_abs_diff(Usage) ->
+    Fun = fun(Resource, Max) ->
+        #{used := Diff0} = maps:get(Resource, Usage),
         Diff = abs(Diff0),
         case Diff > Max of
             true ->
@@ -485,38 +506,18 @@ max_abs_diff(Usage) when is_record(Usage, usage) ->
                 Max
         end
     end,
-    lists:foldl(Fun, 0, lists:seq(3, record_info(size, usage))).
+    lists:foldl(Fun, 0, [sessions, authn_users, authz_rules]).
 
-do_submit(Now, Need) ->
-    ok = trans(
-        fun() ->
-            maps:foreach(
-                fun(TenantId, {Usage, _}) ->
-                    case mnesia:read(?USAGE_TAB, TenantId, write) of
-                        [] ->
-                            mnesia:write(?USAGE_TAB, Usage, write);
-                        [Usage0] ->
-                            Usage1 = update_usage_record(Usage0, Usage),
-                            mnesia:write(?USAGE_TAB, Usage1, write)
-                    end
-                end,
-                Need
-            )
-        end
-    ),
+do_submit(TenantId, Usage) ->
     maps:map(
-        fun(_, {Usage, _}) ->
-            Usage1 = lists:foldl(
-                fun(I, Acc) ->
-                    C = element(I, Acc),
-                    setelement(I, Acc, C#{used := 0})
-                end,
-                Usage,
-                lists:seq(3, record_info(size, usage))
-            ),
-            {Usage1, Now}
+        fun
+            (Resource, Counter = #{used := Used}) when Used =/= 0 ->
+                update_counter(TenantId, Resource, Used),
+                Counter#{used := 0};
+            (_, Counter) ->
+                Counter
         end,
-        Need
+        Usage
     ).
 
 %%--------------------------------------------------------------------
@@ -527,28 +528,31 @@ do_acquire(N, TenantId, Resource, Buffer) ->
         undefined ->
             {deny, Buffer};
         {Usage, LastSubmitTs} ->
-            Pos = position(Resource),
-            try ets:lookup_element(?USAGE_TAB, TenantId, Pos) of
-                #{max := Max, used := Used0} ->
-                    #{used := Used} = element(Pos, Usage),
-                    case Max >= Used0 + Used + N of
-                        true ->
-                            TBuffer = {incr(Resource, N, Usage), LastSubmitTs},
-                            {allow, Buffer#{TenantId => TBuffer}};
-                        false ->
+            case maps:get(Resource, Usage, undefined) of
+                undefined ->
+                    {deny, Buffer};
+                #{max := Max, used := Used1} ->
+                    try unsafe_lookup_counter(TenantId, Resource) of
+                        Used2 ->
+                            case Max >= Used1 + Used2 + N of
+                                true ->
+                                    TBuffer = {incr(Resource, N, Usage), LastSubmitTs},
+                                    {allow, Buffer#{TenantId => TBuffer}};
+                                false ->
+                                    {deny, Buffer}
+                            end
+                    catch
+                        _:_ ->
+                            ?SLOG(
+                                warning,
+                                #{
+                                    msg => "dataset_gone_when_acquire_token",
+                                    tenant_id => TenantId,
+                                    resource => Resource
+                                }
+                            ),
                             {deny, Buffer}
                     end
-            catch
-                error:badarg ->
-                    ?SLOG(
-                        warning,
-                        #{
-                            msg => "dataset_gone_when_acquire_token",
-                            tenant_id => TenantId,
-                            resource => Resource
-                        }
-                    ),
-                    {deny, Buffer}
             end
     end.
 
@@ -564,85 +568,34 @@ do_release(N, TenantId, Resource, Buffer) ->
 %%--------------------------------------------------------------------
 %% helpers
 
-trans(Fun) ->
-    case mria:transaction(?TENANCY_SHARD, Fun, []) of
-        {atomic, ok} -> ok;
-        {atomic, Res} -> {ok, Res};
-        {aborted, Error} -> {error, Error}
-    end.
-
-%% @doc use New's max, and Old's + New's used
-update_usage_record(New, Old) when is_record(New, usage), is_record(Old, usage) ->
-    lists:foldl(
-        fun(I, Acc) ->
-            #{max := Max, used := Used0} = element(I, New),
-            #{used := Used1} = element(I, Old),
-            setelement(I, Acc, #{max => Max, used => Used0 + Used1})
-        end,
-        New,
-        lists:seq(3, record_info(size, usage))
-    ).
-
-config_to_usage(
-    TenantId,
-    #{
-        max_sessions := MaxSess,
-        max_authn_users := MaxAuthN,
-        max_authz_rules := MaxAuthZ
-    }
-) ->
-    #usage{
-        id = TenantId,
-        sessions = counter(MaxSess),
-        authn_users = counter(MaxAuthN),
-        authz_rules = counter(MaxAuthZ),
-        subs = counter(infinity),
-        retained = counter(infinity),
-        rules = counter(infinity),
-        resources = counter(infinity),
-        shared_subs = counter(infinity)
-    }.
-
-usage_to_info(#usage{
-    sessions = Sess,
-    authn_users = AuthN,
-    authz_rules = AuthZ,
-    subs = Subs,
-    retained = Retained,
-    rules = Rules,
-    resources = Res,
-    shared_subs = SharedSub
+init_usage(#{
+    max_sessions := MaxSess,
+    max_authn_users := MaxAuthn,
+    max_authz_rules := MaxAuthz
 }) ->
     #{
-        sessions => Sess,
-        authn_users => AuthN,
-        authz_rules => AuthZ,
-        subs => Subs,
-        retained => Retained,
-        rules => Rules,
-        resources => Res,
-        shared_subs => SharedSub
+        sessions => #{max => MaxSess, used => 0},
+        authn_users => #{max => MaxAuthn, used => 0},
+        authz_rules => #{max => MaxAuthz, used => 0}
     }.
 
-counter(Max) ->
-    #{max => Max, used => 0}.
+apply_counter_to_usage(
+    TenantId,
+    #{
+        sessions := #{max := MaxSess, used := Sess},
+        authn_users := #{max := MaxAuthn, used := Authn},
+        authz_rules := #{max := MaxAuthz, used := Authz}
+    }
+) ->
+    #{
+        sessions => #{max => MaxSess, used => Sess + lookup_counter(TenantId, sessions)},
+        authn_users => #{max => MaxAuthn, used => Authn + lookup_counter(TenantId, authn_users)},
+        authz_rules => #{max => MaxAuthz, used => Authz + lookup_counter(TenantId, authz_rules)}
+    }.
 
-incr(sessions, N, Usage = #usage{sessions = C = #{used := Used}}) ->
-    Usage#usage{sessions = C#{used := Used + N}};
-incr(authn_users, N, Usage = #usage{authn_users = C = #{used := Used}}) ->
-    Usage#usage{authn_users = C#{used := Used + N}};
-incr(authz_rules, N, Usage = #usage{authz_rules = C = #{used := Used}}) ->
-    Usage#usage{authz_rules = C#{used := Used + N}};
-incr(subs, N, Usage = #usage{subs = C = #{used := Used}}) ->
-    Usage#usage{subs = C#{used := Used + N}};
-incr(retained, N, Usage = #usage{retained = C = #{used := Used}}) ->
-    Usage#usage{retained = C#{used := Used + N}};
-incr(rules, N, Usage = #usage{rules = C = #{used := Used}}) ->
-    Usage#usage{rules = C#{used := Used + N}};
-incr(resources, N, Usage = #usage{resources = C = #{used := Used}}) ->
-    Usage#usage{resources = C#{used := Used + N}};
-incr(shared_subs, N, Usage = #usage{shared_subs = C = #{used := Used}}) ->
-    Usage#usage{shared_subs = C#{used := Used + N}}.
+incr(Resource, N, Usage) ->
+    M = #{used := Used} = maps:get(Resource, Usage),
+    Usage#{Resource := M#{used := Used + N}}.
 
 now_ts() ->
     erlang:system_time(millisecond).
