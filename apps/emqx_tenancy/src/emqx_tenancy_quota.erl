@@ -290,12 +290,13 @@ acquire(N, TenantId, Resource) ->
 release(N, TenantId, Resource) ->
     try unsafe_lookup_counter(TenantId, Resource) of
         _ ->
-            cast({released, N, TenantId, Resource}),
-            {stop, allow}
+            cast({released, N, TenantId, Resource})
     catch
-        error:badarg ->
-            {stop, deny}
-    end.
+        error:badarg -> ok
+    end,
+    %% Note: return `allow` regardless of whether the resource exists
+    %% or it is sufficiently to free
+    {stop, allow}.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -351,6 +352,7 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
+    mnesia:clear_table(?COUNTER),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -469,7 +471,7 @@ submit(
                     end,
                     Need
                 ),
-                ?tp(debug, submit, #{}),
+                ?tp(debug, submit, #{tenants_count => map_size(Need)}),
                 State#{buffer := maps:merge(Buffer, Need1)}
         end,
     NState.
@@ -482,16 +484,21 @@ submit(
         delayed_submit_diff := AllowedDiff
     }
 ) ->
-    Now = now_ts(),
-    {Usage, LastSubmitTs} = maps:get(TenantId, Buffer),
-    case
-        max_abs_diff(Usage) >= AllowedDiff orelse
-            (Now - LastSubmitTs) > Interval
-    of
-        true ->
-            Usage1 = do_submit(TenantId, Usage),
-            State#{buffer := Buffer#{TenantId := {Usage1, Now}}};
-        false ->
+    case maps:get(TenantId, Buffer, undefined) of
+        {Usage, LastSubmitTs} ->
+            Now = now_ts(),
+            case
+                max_abs_diff(Usage) >= AllowedDiff orelse
+                    (Now - LastSubmitTs) > Interval
+            of
+                true ->
+                    Usage1 = do_submit(TenantId, Usage),
+                    ?tp(debug, submit, #{tenants_count => 1, tenant_id => TenantId}),
+                    State#{buffer := Buffer#{TenantId := {Usage1, Now}}};
+                false ->
+                    State
+            end;
+        _ ->
             State
     end.
 
