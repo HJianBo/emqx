@@ -22,6 +22,10 @@
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
+%% Mnesia
+-export([mnesia/1]).
+-boot_mnesia({mnesia, [boot]}).
+
 %% APIs
 -export([start_link/2]).
 
@@ -50,7 +54,8 @@
 -define(STATS_TAB, emqx_tenancy_limiter_stats).
 
 -record(stats, {
-    key :: {node(), tenant_id()},
+    key :: {node(), tenant_id(), limiter_type()},
+    %% @deprecated
     type :: limiter_type(),
     %% defines at emqx_limiter_server:bucket()
     obtained :: float()
@@ -65,6 +70,26 @@
 }.
 
 -define(DEFAULT_TIMEOUT, 5000).
+
+%%--------------------------------------------------------------------
+%% Mnesia
+%%--------------------------------------------------------------------
+
+-spec mnesia(boot) -> ok.
+mnesia(boot) ->
+    ok = mria:create_table(?STATS_TAB, [
+        {type, set},
+        {rlog_shard, ?TENANCY_SHARD},
+        {storage, ram_copies},
+        {record_name, stats},
+        {attributes, record_info(fields, stats)},
+        {storage_properties, [
+            {ets, [
+                {read_concurrency, true},
+                {write_concurrency, true}
+            ]}
+        ]}
+    ]).
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -98,7 +123,6 @@ call(Pid, Msg) ->
 -spec init(list()) -> {ok, state()}.
 init([TenantId, Cfg]) ->
     process_flag(trap_exit, true),
-    ok = ensure_table_created(),
     Limiters = start_limiter_servers(TenantId, Cfg),
     State = #{
         tenant_id => TenantId,
@@ -108,21 +132,6 @@ init([TenantId, Cfg]) ->
         tref => undefined
     },
     {ok, ensure_rebalance_timer(State)}.
-
-ensure_table_created() ->
-    ok = mria:create_table(?STATS_TAB, [
-        {type, set},
-        {rlog_shard, ?TENANCY_SHARD},
-        {storage, ram_copies},
-        {record_name, stats},
-        {attributes, record_info(fields, stats)},
-        {storage_properties, [
-            {ets, [
-                {read_concurrency, true},
-                {write_concurrency, true}
-            ]}
-        ]}
-    ]).
 
 handle_call(info, _From, State = #{limiters := Limiters}) ->
     Infos = maps:fold(
@@ -243,7 +252,7 @@ ensure_rebalance_timer(State = #{tref := undefined}) ->
 
 fetch_current_stats(TenantId) ->
     Ms = ets:fun2ms(
-        fun(#stats{key = {Node, TId}, type = Type, obtained = Obtained}) when TId =:= TenantId ->
+        fun(#stats{key = {Node, TId, Type}, obtained = Obtained}) when TId =:= TenantId ->
             {Node, Type, Obtained}
         end
     ),
@@ -268,8 +277,20 @@ lookup_obtained(Pid) ->
 report_usage(TenantId, Usages) ->
     maps:foreach(
         fun(Type, Obtained) ->
-            Stats = #stats{key = {node(), TenantId}, type = Type, obtained = Obtained},
-            mria:dirty_write(?STATS_TAB, Stats)
+            Stats = #stats{key = {node(), TenantId, Type}, obtained = Obtained},
+            try
+                %% A `no_exists` error may be thrown here when the
+                %% core node is missing or not ready
+                mria:dirty_write(?STATS_TAB, Stats)
+            catch
+                _:Reason ->
+                    ?SLOG(warning, #{
+                        msg => "failed_report_limiter_usage",
+                        tenant_id => TenantId,
+                        stats => Stats,
+                        reason => Reason
+                    })
+            end
         end,
         Usages
     ).
@@ -318,10 +339,9 @@ rebalance(
         last_stats := LastStats0#{Type => NewStats}
     }).
 
-%% Averaging by number of node connections
 allowed_node_rate(_Type, ClusterRate, _) ->
-    %% FIXME:
-    ClusterRate / length(mria_mnesia:running_nodes()).
+    %% FIXME: Averaging by number of node connections
+    ClusterRate / (length(nodes()) + 1).
 
 obtained_tokens_per_node(NewStats, LastStats) ->
     maps:fold(

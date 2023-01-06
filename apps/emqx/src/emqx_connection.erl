@@ -737,9 +737,19 @@ handle_timeout(TRef, Msg, State) ->
 -compile({inline, [when_bytes_in/3]}).
 when_bytes_in(Oct, Data, State) ->
     {Packets, NState} = parse_incoming(Data, [], State),
-    Len = erlang:length(Packets),
+    Len = lists:foldl(
+        fun
+            (?PACKET(?PUBLISH), Acc) ->
+                Acc + 1;
+            (_, Acc) ->
+                Acc
+        end,
+        0,
+        Packets
+    ),
+    Needs = [{Oct, ?LIMITER_BYTES_IN}] ++ [{Len, ?LIMITER_MESSAGE_IN} || Len =/= 0],
     check_limiter(
-        [{Oct, ?LIMITER_BYTES_IN}, {Len, ?LIMITER_MESSAGE_IN}],
+        Needs,
         Packets,
         fun next_incoming_msgs/3,
         [],

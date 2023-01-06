@@ -86,12 +86,17 @@ handle_cast({monitor_session_proc, Pid, TenantId, ClientId}, State = #{pmon := P
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
+%% there may be some schema events once the core node leaves.
+handle_info({mnesia_table_event, {write, {schema, ?TENANCY, _Schmea}, _ActivityId}}, State) ->
+    {noreply, State};
+handle_info({mnesia_table_event, {delete, {schema, ?TENANCY}, _ActivityId}}, State) ->
+    {noreply, State};
 handle_info({mnesia_table_event, {write, Tenant, _ActivityId}}, State) ->
     %% Note: the Tenant's record name is emqx_tenacy not tenant
     case fix_record_name(Tenant) of
         #tenant{id = TenantId, enabled = false} ->
             kick_all_session(TenantId);
-        #tenant{} ->
+        _ ->
             ok
     end,
     {noreply, State};

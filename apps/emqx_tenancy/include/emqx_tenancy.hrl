@@ -24,13 +24,18 @@
 
 -type tenant_id() :: binary().
 
--type config() :: quota_config() | limiter_config() | common_config().
+-type config() ::
+    #{
+        quotas := quota_config(),
+        limiters := limiter_config()
+    }
+    | common_config().
 
 -type quota_config() ::
     #{
         max_sessions := pos_integer(),
         max_authn_users := pos_integer(),
-        max_authz_users := pos_integer()
+        max_authz_rules := pos_integer()
         %max_subscriptions := pos_integer(),
         %max_retained_messages := pos_integer(),
         %max_rules := pos_integer(),

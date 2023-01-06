@@ -56,7 +56,8 @@ end_per_suite(_) ->
 set_special_configs(emqx) ->
     %% restart gen_rpc with `stateless` mode
     application:set_env(gen_rpc, port_discovery, stateless),
-    ok = application:stop(gen_rpc),
+    _ = application:stop(gen_rpc),
+    timer:sleep(100),
     ok = application:start(gen_rpc);
 set_special_configs(emqx_authz) ->
     {ok, _} = emqx:update_config([authorization, sources], []);
