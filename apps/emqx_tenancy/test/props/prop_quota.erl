@@ -203,31 +203,19 @@ postcondition(State, {call, _Mod, on_quota_sessions, [Action, #{tenant_id := Id}
     %% assert
     {Wanted, _State} = apply_quota_action(Action, Id, sessions, State),
     ?assertMatch(Wanted, Res),
-    %% await quota server sync changes to mnesia table
-    await_changes_synced(Res),
     true;
 postcondition(State, {call, _Mod, on_quota_authn_users, [Action, Id, _]}, Res) ->
     %% assert
     {Wanted, _State} = apply_quota_action(Action, Id, authn_users, State),
     ?assertMatch(Wanted, Res),
-    %% await quota server sync changes to mnesia table
-    await_changes_synced(Res),
     true;
 postcondition(State, {call, _Mod, on_quota_authz_users, [Action, Id, _]}, Res) ->
     %% assert
     {Wanted, _State} = apply_quota_action(Action, Id, authz_rules, State),
     ?assertMatch(Wanted, Res),
-    %% await quota server sync changes to mnesia table
-    await_changes_synced(Res),
     true;
 postcondition(_State, {call, _Mod, _Fun, _Args}, _Res) ->
     true.
-
-await_changes_synced({_, allow}) ->
-    %{ok, _} = ?block_until(#{?snk_kind := submit}, 1000);
-    ok;
-await_changes_synced(_) ->
-    ok.
 
 %% @doc Assuming the postcondition for a call was true, update the model
 %% accordingly for the test to proceed.
