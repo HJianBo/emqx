@@ -270,7 +270,19 @@ report_usage(TenantId, Usages) ->
     maps:foreach(
         fun(Type, Obtained) ->
             Stats = #stats{key = {node(), TenantId, Type}, obtained = Obtained},
-            mria:dirty_write(?STATS_TAB, Stats)
+            try
+                %% A `no_exists` error may be thrown here when the
+                %% core node is missing or not ready
+                mria:dirty_write(?STATS_TAB, Stats)
+            catch
+                _:Reason ->
+                    ?SLOG(warning, #{
+                        msg => "failed_report_limiter_usage",
+                        tenant_id => TenantId,
+                        stats => Stats,
+                        reason => Reason
+                    })
+            end
         end,
         Usages
     ).
