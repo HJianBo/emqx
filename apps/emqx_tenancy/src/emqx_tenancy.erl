@@ -43,7 +43,7 @@
 mnesia(boot) ->
     ok = mria:create_table(?TENANCY, [
         {type, set},
-        {rlog_shard, ?TENANCY_SHARD},
+        {rlog_shard, ?COMMON_SHARD},
         {storage, disc_copies},
         {record_name, tenant},
         {attributes, record_info(fields, tenant)}
@@ -108,7 +108,7 @@ delete(Id) ->
     trans(fun ?MODULE:do_delete/1, [Id]).
 
 trans(Fun, Args) ->
-    case mria:transaction(?TENANCY_SHARD, Fun, Args) of
+    case mria:transaction(?COMMON_SHARD, Fun, Args) of
         {atomic, ok} -> ok;
         {atomic, Res = #tenant{}} -> {ok, format(Res)};
         {aborted, Error} -> {error, Error}
