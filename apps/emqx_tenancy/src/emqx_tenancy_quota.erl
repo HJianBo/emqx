@@ -68,7 +68,9 @@
     %% How much delayed count is allowed
     delayed_submit_diff := non_neg_integer(),
     %% local buffer
-    buffer := #{tenant_id() => {usage(), LastSubmitTs :: pos_integer()}}
+    buffer := #{tenant_id() => {usage(), LastSubmitTs :: pos_integer()}},
+    %%
+    await := sets:set()
 }.
 
 -type options() :: #{
@@ -308,7 +310,8 @@ init([Options]) ->
     State = #{
         delayed_submit_ms => maps:get(delayed_submit_ms, Options),
         delayed_submit_diff => maps:get(delayed_submit_diff, Options),
-        buffer => load_tenants_used()
+        buffer => load_tenants_used(),
+        await => sets:new()
     },
     {ok, ensure_submit_timer(State)}.
 
@@ -321,10 +324,11 @@ handle_call(
     ok = init_counter(TenantId),
     TBuffer = {Usage, now_ts()},
     {reply, ok, State#{buffer := Buffer#{TenantId => TBuffer}}};
-handle_call({remove, TenantId}, _From, State = #{buffer := Buffer}) ->
+handle_call({remove, TenantId}, _From, State = #{buffer := Buffer, await := Await}) ->
     NBuffer = maps:remove(TenantId, Buffer),
+    NAwait = sets:del_element(TenantId, Await),
     ok = clear_counter(TenantId),
-    {reply, ok, State#{buffer := NBuffer}};
+    {reply, ok, State#{buffer := NBuffer, await := NAwait}};
 handle_call({info, TenantId}, _From, State = #{buffer := Buffer}) ->
     Reply =
         case maps:get(TenantId, Buffer, undefined) of
@@ -346,8 +350,13 @@ handle_cast({released, N, TenantId, Resource}, State = #{buffer := Buffer}) ->
     Buffer1 = do_release(N, TenantId, Resource, Buffer),
     {noreply, submit(TenantId, State#{buffer := Buffer1})}.
 
-handle_info(submit, State) ->
-    {noreply, ensure_submit_timer(submit(State))};
+handle_info(submit, State = #{await := Await}) ->
+    case sets:is_empty(Await) of
+        true ->
+            {noreply, ensure_submit_timer(State)};
+        false ->
+            {noreply, ensure_submit_timer(submit(State))}
+    end;
 handle_info(_Info, State) ->
     {noreply, State}.
 
@@ -445,22 +454,30 @@ ensure_submit_timer(State) ->
 
 submit(
     State = #{
+        await := Await,
         buffer := Buffer,
         delayed_submit_ms := Interval,
         delayed_submit_diff := AllowedDiff
     }
 ) ->
     Now = now_ts(),
-    %% return true if it should be submit
-    Pred = fun(_TenantId, {Usage, LastSubmitTs}) ->
-        case max_abs_diff(Usage) of
-            Diff when Diff == 0 -> false;
-            Diff when Diff >= AllowedDiff -> true;
-            _ -> (Now - LastSubmitTs) > Interval
-        end
-    end,
+    %% return if it should be submit
+    Pred =
+        fun(TenantId, Acc) ->
+            {Usage, LastSubmitTs} = maps:get(TenantId, Buffer),
+            Bool =
+                case max_abs_diff(Usage) of
+                    Diff when Diff == 0 -> false;
+                    Diff when Diff >= AllowedDiff -> true;
+                    _ -> (Now - LastSubmitTs) > Interval
+                end,
+            case Bool of
+                false -> Acc;
+                true -> Acc#{TenantId => {Usage, LastSubmitTs}}
+            end
+        end,
     NState =
-        case maps:filter(Pred, Buffer) of
+        case sets:fold(Pred, #{}, Await) of
             Need when map_size(Need) =:= 0 ->
                 State;
             Need ->
@@ -472,13 +489,19 @@ submit(
                     Need
                 ),
                 ?tp(debug, submit, #{tenants_count => map_size(Need)}),
-                State#{buffer := maps:merge(Buffer, Need1)}
+                Await1 = lists:foldl(
+                    fun(TenantId, Acc) -> sets:del_element(TenantId, Acc) end,
+                    Await,
+                    maps:keys(Need1)
+                ),
+                State#{buffer := maps:merge(Buffer, Need1), await := Await1}
         end,
     NState.
 
 submit(
     TenantId,
     State = #{
+        await := Await,
         buffer := Buffer,
         delayed_submit_ms := Interval,
         delayed_submit_diff := AllowedDiff
@@ -496,10 +519,10 @@ submit(
                     ?tp(debug, submit, #{tenants_count => 1, tenant_id => TenantId}),
                     State#{buffer := Buffer#{TenantId := {Usage1, Now}}};
                 false ->
-                    State
+                    State#{await => sets:add_element(TenantId, Await)}
             end;
         _ ->
-            State
+            State#{await => sets:add_element(TenantId, Await)}
     end.
 
 max_abs_diff(Usage) ->
