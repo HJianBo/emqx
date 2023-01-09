@@ -70,6 +70,7 @@
 }.
 
 -define(DEFAULT_TIMEOUT, 5000).
+-define(DEFAULT_SERVER_PERIOD, 1000).
 
 %%--------------------------------------------------------------------
 %% Mnesia
@@ -174,13 +175,23 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
-handle_info({timeout, _Ref, rebalance}, State = #{tenant_id := TenantId, limiters := Limiters}) ->
+handle_info(
+    {timeout, _Ref, rebalance},
+    State = #{tenant_id := TenantId, limiters := Limiters, last_stats := LastStats}
+) ->
     Usages = collect_obtained(Limiters),
-    NewStats = fetch_current_stats(TenantId),
-    NState = rebalance(Usages, NewStats, State),
-    ok = report_usage(TenantId, Usages),
-    ?tp(debug, rebalanced, #{}),
-    {noreply, ensure_rebalance_timer(NState#{tref := undefined})};
+    State2 =
+        case has_new_tokens_obtained(Usages, LastStats) of
+            true ->
+                NewStats = fetch_current_stats(TenantId),
+                ok = report_usage(TenantId, Usages),
+                State1 = rebalance(Usages, NewStats, State),
+                ?tp(debug, rebalanced, #{tenant_id => TenantId}),
+                State1;
+            false ->
+                State
+        end,
+    {noreply, ensure_rebalance_timer(State2#{tref := undefined})};
 %% TODO: handle process down
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -204,7 +215,7 @@ start_limiter_servers(TenantId, Cfg) ->
     ).
 
 start_limiter_server(TenantId, Type, Rate) ->
-    LimiterCfg = #{rate => inner_rate(Rate), burst => 0},
+    LimiterCfg = #{rate => inner_rate(Rate), burst => 0, period => ?DEFAULT_SERVER_PERIOD},
     {ok, Pid} = emqx_limiter_server:start_link(
         noname,
         Type,
@@ -250,19 +261,36 @@ ensure_rebalance_timer(State = #{tref := undefined}) ->
     Ref = emqx_misc:start_timer(?DEFAULT_TIMEOUT, rebalance),
     State#{tref := Ref}.
 
+has_new_tokens_obtained(
+    #{
+        message_in := MsgIn,
+        bytes_in := BytesIn
+    },
+    LastStats
+) ->
+    Node = node(),
+    LastMsgIn = maps:get(Node, maps:get(message_in, LastStats, #{}), 0),
+    LastBytesIn = maps:get(Node, maps:get(bytes_in, LastStats, #{}), 0),
+    not (MsgIn == LastMsgIn andalso BytesIn == LastBytesIn).
+
 fetch_current_stats(TenantId) ->
-    Ms = ets:fun2ms(
-        fun(#stats{key = {Node, TId, Type}, obtained = Obtained}) when TId =:= TenantId ->
-            {Node, Type, Obtained}
-        end
+    Nodes = nodes(),
+    Stats1 = lists:flatten(
+        lists:map(
+            fun(Node) ->
+                ets:lookup(?STATS_TAB, {Node, TenantId, message_in}) ++
+                    ets:lookup(?STATS_TAB, {Node, TenantId, bytes_in})
+            end,
+            Nodes
+        )
     ),
     lists:foldl(
-        fun({Node, Type, Obtained}, Acc) ->
+        fun(#stats{key = {Node, _, Type}, obtained = Obtained}, Acc) ->
             M = maps:get(Type, Acc, #{}),
             Acc#{Type => M#{Node => Obtained}}
         end,
         #{},
-        ets:select(?STATS_TAB, Ms)
+        Stats1
     ).
 
 collect_obtained(Limiters) ->
@@ -405,6 +433,5 @@ bucket_cfg(Rate) ->
         capacity => Rate
     }.
 
-%% rate per 100ms
 inner_rate(Rate) ->
-    Rate / 10.
+    Rate / (1000 / ?DEFAULT_SERVER_PERIOD).

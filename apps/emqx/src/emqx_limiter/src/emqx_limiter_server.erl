@@ -416,11 +416,11 @@ init_tree(Type, Cfg) when is_atom(Type) ->
     }.
 
 -spec make_root(hocons:confg()) -> root().
-make_root(#{rate := Rate, burst := Burst}) ->
+make_root(#{rate := Rate, burst := Burst} = Conf) ->
     #{
         rate => Rate,
         burst => Burst,
-        period => emqx_limiter_schema:default_period(),
+        period => maps:get(period, Conf, emqx_limiter_schema:default_period()),
         produced => 0.0
     }.
 
