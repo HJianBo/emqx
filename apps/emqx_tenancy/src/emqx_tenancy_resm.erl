@@ -124,7 +124,7 @@ code_change(_OldVsn, State, _Extra) ->
 release_conns(Items) ->
     lists:foreach(
         fun({Pid, {TenantId, ClientId}}) ->
-            emqx_tenancy_quota:on_quota_sessions(
+            _ = emqx_tenancy_quota:on_quota_sessions(
                 release,
                 #{tenant_id => TenantId},
                 ok

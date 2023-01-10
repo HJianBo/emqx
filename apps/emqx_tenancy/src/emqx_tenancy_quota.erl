@@ -68,7 +68,9 @@
     %% How much delayed count is allowed
     delayed_submit_diff := non_neg_integer(),
     %% local buffer
-    buffer := #{tenant_id() => {usage(), LastSubmitTs :: pos_integer()}}
+    buffer := #{tenant_id() => {usage(), LastSubmitTs :: pos_integer()}},
+    %%
+    await := sets:set()
 }.
 
 -type options() :: #{
@@ -224,7 +226,7 @@ cast(Msg) ->
 
 -type permision() :: {stop, allow | deny}.
 
--spec on_quota_sessions(quota_action(), emqx_types:clientinfo(), term()) -> permision().
+-spec on_quota_sessions(quota_action(), map(), term()) -> permision().
 on_quota_sessions(_Action, #{tenant_id := ?NO_TENANT}, _LastPermision) ->
     {stop, allow};
 on_quota_sessions(Action, ClientInfo = #{tenant_id := TenantId}, _LastPermision) ->
@@ -308,7 +310,8 @@ init([Options]) ->
     State = #{
         delayed_submit_ms => maps:get(delayed_submit_ms, Options),
         delayed_submit_diff => maps:get(delayed_submit_diff, Options),
-        buffer => load_tenants_used()
+        buffer => load_tenants_used(),
+        await => sets:new()
     },
     {ok, ensure_submit_timer(State)}.
 
@@ -321,10 +324,11 @@ handle_call(
     ok = init_counter(TenantId),
     TBuffer = {Usage, now_ts()},
     {reply, ok, State#{buffer := Buffer#{TenantId => TBuffer}}};
-handle_call({remove, TenantId}, _From, State = #{buffer := Buffer}) ->
+handle_call({remove, TenantId}, _From, State = #{buffer := Buffer, await := Await}) ->
     NBuffer = maps:remove(TenantId, Buffer),
+    NAwait = sets:del_element(TenantId, Await),
     ok = clear_counter(TenantId),
-    {reply, ok, State#{buffer := NBuffer}};
+    {reply, ok, State#{buffer := NBuffer, await := NAwait}};
 handle_call({info, TenantId}, _From, State = #{buffer := Buffer}) ->
     Reply =
         case maps:get(TenantId, Buffer, undefined) of
@@ -346,13 +350,18 @@ handle_cast({released, N, TenantId, Resource}, State = #{buffer := Buffer}) ->
     Buffer1 = do_release(N, TenantId, Resource, Buffer),
     {noreply, submit(TenantId, State#{buffer := Buffer1})}.
 
-handle_info(submit, State) ->
-    {noreply, ensure_submit_timer(submit(State))};
+handle_info(submit, State = #{await := Await}) ->
+    case sets:is_empty(Await) of
+        true ->
+            {noreply, ensure_submit_timer(State)};
+        false ->
+            {noreply, ensure_submit_timer(submit(State))}
+    end;
 handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
-    mnesia:clear_table(?COUNTER),
+    _ = mnesia:clear_table(?COUNTER),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -366,7 +375,7 @@ code_change(_OldVsn, State, _Extra) ->
 %% counter
 
 update_counter(TenantId, Resource, N) ->
-    mnesia:dirty_update_counter(?COUNTER, {TenantId, Resource}, N).
+    mria:dirty_update_counter(?COUNTER, {TenantId, Resource}, N).
 
 lookup_counter(TenantId, Resource) ->
     try
@@ -379,9 +388,9 @@ unsafe_lookup_counter(TenantId, Resource) ->
     ets:lookup_element(?COUNTER, {TenantId, Resource}, 3).
 
 init_counter(TenantId) ->
-    mnesia:dirty_update_counter(?COUNTER, {TenantId, sessions}, 0),
-    mnesia:dirty_update_counter(?COUNTER, {TenantId, authn_users}, 0),
-    mnesia:dirty_update_counter(?COUNTER, {TenantId, authz_rules}, 0),
+    mria:dirty_update_counter(?COUNTER, {TenantId, sessions}, 0),
+    mria:dirty_update_counter(?COUNTER, {TenantId, authn_users}, 0),
+    mria:dirty_update_counter(?COUNTER, {TenantId, authz_rules}, 0),
     ok.
 
 clear_counter(TenantId) ->
@@ -445,22 +454,30 @@ ensure_submit_timer(State) ->
 
 submit(
     State = #{
+        await := Await,
         buffer := Buffer,
         delayed_submit_ms := Interval,
         delayed_submit_diff := AllowedDiff
     }
 ) ->
     Now = now_ts(),
-    %% return true if it should be submit
-    Pred = fun(_TenantId, {Usage, LastSubmitTs}) ->
-        case max_abs_diff(Usage) of
-            Diff when Diff == 0 -> false;
-            Diff when Diff >= AllowedDiff -> true;
-            _ -> (Now - LastSubmitTs) > Interval
-        end
-    end,
+    %% return if it should be submit
+    Pred =
+        fun(TenantId, Acc) ->
+            {Usage, LastSubmitTs} = maps:get(TenantId, Buffer),
+            Bool =
+                case max_abs_diff(Usage) of
+                    Diff when Diff == 0 -> false;
+                    Diff when Diff >= AllowedDiff -> true;
+                    _ -> (Now - LastSubmitTs) > Interval
+                end,
+            case Bool of
+                false -> Acc;
+                true -> Acc#{TenantId => {Usage, LastSubmitTs}}
+            end
+        end,
     NState =
-        case maps:filter(Pred, Buffer) of
+        case sets:fold(Pred, #{}, Await) of
             Need when map_size(Need) =:= 0 ->
                 State;
             Need ->
@@ -472,13 +489,19 @@ submit(
                     Need
                 ),
                 ?tp(debug, submit, #{tenants_count => map_size(Need)}),
-                State#{buffer := maps:merge(Buffer, Need1)}
+                Await1 = lists:foldl(
+                    fun(TenantId, Acc) -> sets:del_element(TenantId, Acc) end,
+                    Await,
+                    maps:keys(Need1)
+                ),
+                State#{buffer := maps:merge(Buffer, Need1), await := Await1}
         end,
     NState.
 
 submit(
     TenantId,
     State = #{
+        await := Await,
         buffer := Buffer,
         delayed_submit_ms := Interval,
         delayed_submit_diff := AllowedDiff
@@ -496,10 +519,10 @@ submit(
                     ?tp(debug, submit, #{tenants_count => 1, tenant_id => TenantId}),
                     State#{buffer := Buffer#{TenantId := {Usage1, Now}}};
                 false ->
-                    State
+                    State#{await => sets:add_element(TenantId, Await)}
             end;
         _ ->
-            State
+            State#{await => sets:add_element(TenantId, Await)}
     end.
 
 max_abs_diff(Usage) ->
@@ -531,36 +554,30 @@ do_submit(TenantId, Usage) ->
 %% acquire & release
 
 do_acquire(N, TenantId, Resource, Buffer) ->
-    case maps:get(TenantId, Buffer, undefined) of
-        undefined ->
+    try
+        {Usage, LastSubmitTs} = maps:get(TenantId, Buffer),
+        #{max := Max, used := Used1} = maps:get(Resource, Usage),
+        Used2 = unsafe_lookup_counter(TenantId, Resource),
+        case Max >= Used1 + Used2 + N of
+            true ->
+                TBuffer = {incr(Resource, N, Usage), LastSubmitTs},
+                {allow, Buffer#{TenantId => TBuffer}};
+            false ->
+                {deny, Buffer}
+        end
+    catch
+        error:{badkey, _} ->
             {deny, Buffer};
-        {Usage, LastSubmitTs} ->
-            case maps:get(Resource, Usage, undefined) of
-                undefined ->
-                    {deny, Buffer};
-                #{max := Max, used := Used1} ->
-                    try unsafe_lookup_counter(TenantId, Resource) of
-                        Used2 ->
-                            case Max >= Used1 + Used2 + N of
-                                true ->
-                                    TBuffer = {incr(Resource, N, Usage), LastSubmitTs},
-                                    {allow, Buffer#{TenantId => TBuffer}};
-                                false ->
-                                    {deny, Buffer}
-                            end
-                    catch
-                        _:_ ->
-                            ?SLOG(
-                                warning,
-                                #{
-                                    msg => "dataset_gone_when_acquire_token",
-                                    tenant_id => TenantId,
-                                    resource => Resource
-                                }
-                            ),
-                            {deny, Buffer}
-                    end
-            end
+        error:badarg ->
+            ?SLOG(
+                warning,
+                #{
+                    msg => "dataset_gone_when_acquire_token",
+                    tenant_id => TenantId,
+                    resource => Resource
+                }
+            ),
+            {deny, Buffer}
     end.
 
 do_release(N, TenantId, Resource, Buffer) ->
