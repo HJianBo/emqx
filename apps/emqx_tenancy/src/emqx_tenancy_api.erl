@@ -188,9 +188,9 @@ fields(tenant_configs) ->
     ];
 fields(quotas) ->
     [
-        {max_sessions, ?HOCON(integer(), #{desc => <<"Max sessions">>, default => 1000})},
-        {max_authn_users, ?HOCON(integer(), #{desc => <<"Max authn users">>, default => 2000})},
-        {max_authz_rules, ?HOCON(integer(), #{desc => <<"Max authz users">>, default => 2000})}
+        {max_sessions, ?HOCON(integer(), #{desc => <<"Max sessions">>, example => 1000})},
+        {max_authn_users, ?HOCON(integer(), #{desc => <<"Max authn users">>, example => 2000})},
+        {max_authz_rules, ?HOCON(integer(), #{desc => <<"Max authz users">>, example => 2000})}
         %% TODO: 2.0
         %{max_retained_messages,
         %    ?HOCON(integer(), #{desc => <<"Max retained messages">>, default => 1000})},
@@ -205,9 +205,9 @@ fields(quotas) ->
     ];
 fields(limiters) ->
     [
-        {max_messages_in, ?HOCON(integer(), #{desc => <<"Max messages in">>, default => 1000})},
+        {max_messages_in, ?HOCON(integer(), #{desc => <<"Max messages in">>, example => 1000})},
         {max_bytes_in,
-            ?HOCON(integer(), #{desc => <<"Max bytes in">>, default => 10 * 1024 * 1024})}
+            ?HOCON(integer(), #{desc => <<"Max bytes in">>, example => 10 * 1024 * 1024})}
         %% TODO: 2.0
         %{max_conn_rate, ?HOCON(integer(), #{desc => <<"Max connection rate">>, default => 100})},
         %{max_subs_rate, ?HOCON(integer(), #{desc => <<"Max subscriptions rate">>, default => 500})},

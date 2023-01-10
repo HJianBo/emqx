@@ -84,20 +84,7 @@ read(Id) ->
 
 -spec update(tenant_id(), map()) -> {ok, map()} | {error, any()}.
 update(Id, #{<<"id">> := Id} = Tenant) ->
-    Config = maps:get(<<"configs">>, Tenant),
-    case
-        emqx_tenancy_limiter:update(
-            Id,
-            with_limiter_configs(Config)
-        )
-    of
-        ok ->
-            QuotaConfig = with_quota_config(Config),
-            ok = emqx_tenancy_quota:update(Id, QuotaConfig),
-            trans(fun ?MODULE:do_update/1, [Tenant]);
-        {error, Reason} ->
-            {error, Reason}
-    end;
+    trans(fun ?MODULE:do_update/1, [Tenant]);
 update(_Id, _) ->
     {error, invalid_tenant}.
 
@@ -129,7 +116,7 @@ do_read(Id) ->
         [Tenant] -> Tenant
     end.
 
-do_update(Tenant = #{<<"id">> := Id}) ->
+do_update(Update = #{<<"id">> := Id}) ->
     case mnesia:read(?TENANCY, Id, write) of
         [] ->
             mnesia:abort(not_found);
@@ -140,15 +127,29 @@ do_update(Tenant = #{<<"id">> := Id}) ->
                 created_at = CreatedAt,
                 desc = Desc
             } = Prev,
-            NewTenant = Prev#tenant{
-                desc = maps:get(<<"desc">>, Tenant, Desc),
-                configs = maps:get(<<"configs">>, Tenant, Configs),
-                enabled = maps:get(<<"enabled">>, Tenant, Enabled),
-                created_at = CreatedAt,
-                updated_at = now_second()
-            },
-            ok = mnesia:write(?TENANCY, NewTenant, write),
-            NewTenant
+            NewConfigs = emqx_map_lib:deep_merge(Configs, maps:get(<<"configs">>, Update, Configs)),
+            case
+                emqx_tenancy_limiter:update(
+                    Id,
+                    with_limiter_configs(NewConfigs)
+                )
+            of
+                ok ->
+                    NewQuotaConfigs = with_quota_config(NewConfigs),
+                    ok = emqx_tenancy_quota:update(Id, NewQuotaConfigs),
+
+                    NewTenant = Prev#tenant{
+                        desc = maps:get(<<"desc">>, Update, Desc),
+                        configs = NewConfigs,
+                        enabled = maps:get(<<"enabled">>, Update, Enabled),
+                        created_at = CreatedAt,
+                        updated_at = now_second()
+                    },
+                    ok = mnesia:write(?TENANCY, NewTenant, write),
+                    NewTenant;
+                {error, Reason} ->
+                    mnesia:abort(Reason)
+            end
     end.
 
 do_delete(Id) ->
