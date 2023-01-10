@@ -712,6 +712,7 @@ handle_timeout(
     ClientId = emqx_channel:info(clientid, Channel),
     Stats = stats(State),
     emqx_cm:set_chan_stats(ClientId, Stats),
+    %% XXX: depends emqx_tenancy app running state
     emqx_tenancy_stats:update_stats(ClientId, Stats),
     {ok, State#state{stats_timer = undefined}};
 handle_timeout(
