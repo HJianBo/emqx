@@ -109,7 +109,7 @@ schema("/tenants") ->
         post => #{
             description => "Create new tenant",
             tags => ?TAGS,
-            'requestBody' => ?REF(tenant_req),
+            'requestBody' => ?REF(tenant_req_post),
             responses => #{
                 201 => ?REF(tenant_resp),
                 400 => emqx_dashboard_swagger:error_codes(['BAD_REQUEST'])
@@ -132,7 +132,7 @@ schema("/tenants/:id") ->
             description => "Update the specific tenant",
             tags => ?TAGS,
             parameters => [?REF(id)],
-            'requestBody' => ?REF(tenant_req),
+            'requestBody' => ?REF(tenant_req_put),
             responses => #{
                 200 => ?REF(tenant_resp),
                 404 => emqx_dashboard_swagger:error_codes(['NOT_FOUND']),
@@ -150,10 +150,12 @@ schema("/tenants/:id") ->
         }
     }.
 
-fields(tenant_req) ->
-    delete([created_at, updated_at], tenant_field(false));
+fields(tenant_req_post) ->
+    delete([created_at, updated_at], tenant_field(false, default));
+fields(tenant_req_put) ->
+    delete([created_at, updated_at], tenant_field(false, example));
 fields(tenant_resp) ->
-    tenant_field(true);
+    tenant_field(true, example);
 fields(id) ->
     [
         {id,
@@ -167,17 +169,18 @@ fields(id) ->
                 }
             )}
     ];
-fields(tenant_configs) ->
+fields(tenant_example_configs) ->
     [
-        {quotas, ?HOCON(?REF(quotas))},
-        {limiters, ?HOCON(?REF(limiters))}
+        {quotas, ?HOCON(?REF(quotas_example))},
+        {limiters, ?HOCON(?REF(limiters_example))}
         %% TODO: 2.0
         %{min_keepalive, ?HOCON(integer(), #{desc => <<"Min keepalive second">>, default => 30})},
         %{max_keepalive, ?HOCON(integer(), #{desc => <<"Max keepalive">>, default => 3600})},
         %{session_expiry_interval,
         %    ?HOCON(integer(), #{desc => <<"Session expiry interval">>, default => 7200})},
         %{max_mqueue_len, ?HOCON(integer(), #{desc => <<"Max mqueue len">>, default => 32})},
-        %{max_inflight, ?HOCON(integer(), #{desc => <<"Max inflight">>, default => 100})},
+        %{max_inflight,
+        % ?HOCON(integer(), #{desc => <<"Max inflight">>, default => 100})},
         %{max_awaiting_rel, ?HOCON(integer(), #{desc => <<"Max awaiting rel">>, default => 100})},
         %{max_packet_size, ?HOCON(integer(), #{desc => <<"Max packet size">>, default => 1048576})},
         %{max_clientid_len, ?HOCON(integer(), #{desc => <<"Max clientid len">>, default => 65535})},
@@ -186,11 +189,27 @@ fields(tenant_configs) ->
         %{max_topic_alias, ?HOCON(integer(), #{desc => <<"Max topic alias">>, default => 65535})}
         %force_shutdown_policy object {"max_message_queue_len": 1000,"max_heap_size": "32MB"}
     ];
-fields(quotas) ->
+fields(tenant_default_configs) ->
     [
-        {max_sessions, ?HOCON(integer(), #{desc => <<"Max sessions">>, default => 1000})},
-        {max_authn_users, ?HOCON(integer(), #{desc => <<"Max authn users">>, default => 2000})},
-        {max_authz_rules, ?HOCON(integer(), #{desc => <<"Max authz users">>, default => 2000})}
+        {quotas, ?HOCON(?REF(quotas_default))},
+        {limiters, ?HOCON(?REF(limiters_default))}
+    ];
+fields(quotas_default) ->
+    fields(quotas, default);
+fields(quotas_example) ->
+    fields(quotas, example);
+fields(limiters_default) ->
+    fields(limiters, default);
+fields(limiters_example) ->
+    fields(limiters, example).
+
+fields(quotas, ExampleOrDefault) ->
+    [
+        {max_sessions, ?HOCON(integer(), #{desc => <<"Max sessions">>, ExampleOrDefault => 1000})},
+        {max_authn_users,
+            ?HOCON(integer(), #{desc => <<"Max authn users">>, ExampleOrDefault => 2000})},
+        {max_authz_rules,
+            ?HOCON(integer(), #{desc => <<"Max authz users">>, ExampleOrDefault => 2000})}
         %% TODO: 2.0
         %{max_retained_messages,
         %    ?HOCON(integer(), #{desc => <<"Max retained messages">>, default => 1000})},
@@ -203,17 +222,18 @@ fields(quotas) ->
         %{max_shared_subscriptions,
         %    ?HOCON(integer(), #{desc => <<"Max shared subscriptions">>, default => 100})},
     ];
-fields(limiters) ->
+fields(limiters, ExampleOrDefault) ->
     [
-        {max_messages_in, ?HOCON(integer(), #{desc => <<"Max messages in">>, default => 1000})},
+        {max_messages_in,
+            ?HOCON(integer(), #{desc => <<"Max messages in">>, ExampleOrDefault => 1000})},
         {max_bytes_in,
-            ?HOCON(integer(), #{desc => <<"Max bytes in">>, default => 10 * 1024 * 1024})}
+            ?HOCON(integer(), #{desc => <<"Max bytes in">>, ExampleOrDefault => 10 * 1024 * 1024})}
         %% TODO: 2.0
         %{max_conn_rate, ?HOCON(integer(), #{desc => <<"Max connection rate">>, default => 100})},
         %{max_subs_rate, ?HOCON(integer(), #{desc => <<"Max subscriptions rate">>, default => 500})},
     ].
 
-tenant_field(Required) ->
+tenant_field(Required, ExampleOrDefault) ->
     [
         {id,
             ?HOCON(
@@ -225,7 +245,7 @@ tenant_field(Required) ->
                     example => <<"emqx-tenant-id">>
                 }
             )},
-        {configs, ?HOCON(?REF(tenant_configs), #{required => Required})},
+        {configs, ?HOCON(configs_field(ExampleOrDefault), #{required => Required})},
         {enabled,
             ?HOCON(
                 ?ENUM([true, false]),
@@ -260,6 +280,9 @@ tenant_field(Required) ->
                 }
             )}
     ].
+
+configs_field(example) -> ?REF(tenant_example_configs);
+configs_field(default) -> ?REF(tenant_default_configs).
 
 delete(Keys, Fields) ->
     lists:foldl(fun(Key, Acc) -> lists:keydelete(Key, 1, Acc) end, Fields, Keys).
@@ -318,6 +341,7 @@ tenant_with_name(delete, #{bindings := #{id := Id}}) ->
 tenant_with_name(put, #{bindings := #{id := Id}, body := Body}) ->
     case emqx_tenancy:update(Id, Body) of
         {ok, Tenant} -> {200, Tenant};
+        {error, not_found} -> {404, ?NOT_FOUND_RESPONSE};
         {error, invalid_tenant} -> {400, #{code => 'BAD_REQUEST', message => <<"invalid_tenant">>}};
         {error, {_Node, not_found}} -> {404, ?NOT_FOUND_RESPONSE}
     end.
