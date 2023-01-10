@@ -74,6 +74,8 @@ init([]) ->
     ok = emqx_tables:new(?CONNS_TAB, [bag, {read_concurrency, true} | TabOpts]),
     %% subscribe emqx_tenancy table events
     {ok, _} = mnesia:subscribe({table, ?TENANCY, simple}),
+    %% subscribe node running state
+    ok = ekka:monitor(membership),
     {ok, #{pmon => emqx_pmon:new()}}.
 
 handle_call(_Request, _From, State) ->
@@ -95,20 +97,29 @@ handle_info({mnesia_table_event, {write, Tenant, _ActivityId}}, State) ->
     %% Note: the Tenant's record name is emqx_tenacy not tenant
     case fix_record_name(Tenant) of
         #tenant{id = TenantId, enabled = false} ->
-            kick_all_session(TenantId);
+            kick_all_sessions(TenantId);
         _ ->
             ok
     end,
     {noreply, State};
 handle_info({mnesia_table_event, {delete, {_Tab, TenantId}, _ActivityId}}, State) ->
-    kick_all_session(TenantId),
+    kick_all_sessions(TenantId),
     {noreply, State};
 handle_info({'DOWN', _MRef, process, Pid, _Reason}, State = #{pmon := PMon}) ->
     ChanPids = [Pid | emqx_misc:drain_down(?BATCH_SIZE)],
     {Items, PMon1} = emqx_pmon:erase_all(ChanPids, PMon),
     ok = release_conns(Items),
     {noreply, State#{pmon := PMon1}};
+handle_info({membership, {node, down, Node}}, State) ->
+    case mria_membership:leader() of
+        Leader when Leader == node() ->
+            emqx_tenancy_quota:cleanup_node_down(Node);
+        _ ->
+            ok
+    end,
+    {noreply, State};
 handle_info(_Info, State) ->
+    %?SLOG(warning, #{msg => "unexpected_event", event => Info}),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -134,7 +145,7 @@ release_conns(Items) ->
         Items
     ).
 
-kick_all_session(TenantId) ->
+kick_all_sessions(TenantId) ->
     List = ets:lookup(?CONNS_TAB, TenantId),
     lists:foreach(
         fun({_, _Pid, ClientId}) ->
@@ -143,7 +154,7 @@ kick_all_session(TenantId) ->
         List
     ),
     ?SLOG(info, #{
-        msg => "kick_all_session",
+        msg => "kick_all_sessions",
         tenant_id => TenantId,
         count => length(List)
     }).

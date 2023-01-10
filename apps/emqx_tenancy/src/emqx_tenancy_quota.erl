@@ -32,6 +32,8 @@
 %% Management APIs
 -export([create/2, update/2, remove/1, info/1]).
 
+-export([cleanup_node_down/1]).
+
 %% Node level APIs
 -export([do_create/2, do_update/2, do_remove/1, do_info/1]).
 
@@ -191,6 +193,21 @@ return_ok_or_error(Result) ->
         [] -> ok;
         [{Node, {error, Reason}} | _] -> {error, {Node, Reason}}
     end.
+
+%%--------------------------------------------------------------------
+%% Node down
+
+-spec cleanup_node_down(node()) -> ok.
+cleanup_node_down(Node) ->
+    Ms = [{{'_', {'$1', sessions, '$2'}, '$3'}, [{'=:=', '$2', Node}], [{{'$1', '$3'}}]}],
+    Ls = ets:select(?COUNTER, Ms),
+    lists:foreach(
+        fun({TenantId, Cnt}) ->
+            mria:dirty_update_counter(?COUNTER, {TenantId, sessions}, -Cnt),
+            mria:dirty_update_counter(?COUNTER, {TenantId, sessions, Node}, -Cnt)
+        end,
+        Ls
+    ).
 
 %%--------------------------------------------------------------------
 %% Management APIs (node-level)
@@ -374,6 +391,9 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 %% counter
 
+update_counter(TenantId, sessions, N) ->
+    mria:dirty_update_counter(?COUNTER, {TenantId, sessions}, N),
+    mria:dirty_update_counter(?COUNTER, {TenantId, sessions, node()}, N);
 update_counter(TenantId, Resource, N) ->
     mria:dirty_update_counter(?COUNTER, {TenantId, Resource}, N).
 
