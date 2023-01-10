@@ -375,7 +375,7 @@ code_change(_OldVsn, State, _Extra) ->
 %% counter
 
 update_counter(TenantId, Resource, N) ->
-    mnesia:dirty_update_counter(?COUNTER, {TenantId, Resource}, N).
+    mria:dirty_update_counter(?COUNTER, {TenantId, Resource}, N).
 
 lookup_counter(TenantId, Resource) ->
     try
@@ -388,9 +388,9 @@ unsafe_lookup_counter(TenantId, Resource) ->
     ets:lookup_element(?COUNTER, {TenantId, Resource}, 3).
 
 init_counter(TenantId) ->
-    mnesia:dirty_update_counter(?COUNTER, {TenantId, sessions}, 0),
-    mnesia:dirty_update_counter(?COUNTER, {TenantId, authn_users}, 0),
-    mnesia:dirty_update_counter(?COUNTER, {TenantId, authz_rules}, 0),
+    mria:dirty_update_counter(?COUNTER, {TenantId, sessions}, 0),
+    mria:dirty_update_counter(?COUNTER, {TenantId, authn_users}, 0),
+    mria:dirty_update_counter(?COUNTER, {TenantId, authz_rules}, 0),
     ok.
 
 clear_counter(TenantId) ->
