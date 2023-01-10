@@ -75,10 +75,13 @@
     last_msg_sent = {0, 0},
     last_byte_received = {0, 0},
     last_byte_sent = {0, 0},
-    msg_dropped = 0,
-    last_msg_dropped = {0, 0},
-    msg_dropped_queue_full = 0,
-    msg_dropped_expired = 0,
+    delivery_dropped = 0,
+    last_delivery_dropped = {0, 0},
+    delivery_dropped_no_local = 0,
+    delivery_dropped_too_large = 0,
+    delivery_dropped_qos0_msg = 0,
+    delivery_dropped_queue_full = 0,
+    delivery_dropped_expired = 0,
     msg_no_subscribers = 0,
     acl_failed = 0,
     auth_failed = 0,
@@ -117,29 +120,37 @@ on_message_delivered(_, _) ->
 on_message_dropped(#message{flags = #{sys := true}}, _, _) ->
     ok;
 on_message_dropped(#message{from = {Tenant, _}}, _, no_subscribers) ->
-    UpdateOpt = [{#stats.msg_no_subscribers, 1}, {#stats.msg_dropped, 1}],
-    update_counter(Tenant, UpdateOpt, #stats{
-        tenant_id = Tenant, msg_no_subscribers = 1, msg_dropped = 1
-    });
+    UpdateOpt = [{#stats.msg_no_subscribers, 1}],
+    update_counter(Tenant, UpdateOpt, #stats{tenant_id = Tenant, msg_no_subscribers = 1});
 on_message_dropped(_, _, _) ->
     ok.
 
 on_delivery_dropped(_, #message{flags = #{sys := true}}, _) ->
     ok;
 on_delivery_dropped(_, #message{from = {Tenant, _}}, queue_full) ->
-    UpdateOpt = [{#stats.msg_dropped_queue_full, 1}, {#stats.msg_dropped, 1}],
+    UpdateOpt = [{#stats.delivery_dropped_queue_full, 1}, {#stats.delivery_dropped, 1}],
     update_counter(Tenant, UpdateOpt, #stats{
-        tenant_id = Tenant, msg_dropped_queue_full = 1, msg_dropped = 1
+        tenant_id = Tenant, delivery_dropped_queue_full = 1, delivery_dropped = 1
     });
 on_delivery_dropped(_, #message{from = {Tenant, _}}, expired) ->
-    UpdateOpt = [{#stats.msg_dropped_expired, 1}, {#stats.msg_dropped, 1}],
+    UpdateOpt = [{#stats.delivery_dropped_expired, 1}, {#stats.delivery_dropped, 1}],
     update_counter(Tenant, UpdateOpt, #stats{
-        tenant_id = Tenant, msg_dropped_expired = 1, msg_dropped = 1
+        tenant_id = Tenant, delivery_dropped_expired = 1, delivery_dropped = 1
     });
-on_delivery_dropped(_, #message{from = {Tenant, _}}, _) ->
-    UpdateOpt = [{#stats.msg_dropped_expired, 1}, {#stats.msg_dropped, 1}],
+on_delivery_dropped(_, #message{from = {Tenant, _}}, no_local) ->
+    UpdateOpt = [{#stats.delivery_dropped_no_local, 1}, {#stats.delivery_dropped, 1}],
     update_counter(Tenant, UpdateOpt, #stats{
-        tenant_id = Tenant, msg_dropped = 1
+        tenant_id = Tenant, delivery_dropped = 1, delivery_dropped_no_local = 1
+    });
+on_delivery_dropped(_, #message{from = {Tenant, _}}, too_large) ->
+    UpdateOpt = [{#stats.delivery_dropped_too_large, 1}, {#stats.delivery_dropped, 1}],
+    update_counter(Tenant, UpdateOpt, #stats{
+        tenant_id = Tenant, delivery_dropped = 1, delivery_dropped_too_large = 1
+    });
+on_delivery_dropped(_, #message{from = {Tenant, _}}, qos0_msg) ->
+    UpdateOpt = [{#stats.delivery_dropped_qos0_msg, 1}, {#stats.delivery_dropped, 1}],
+    update_counter(Tenant, UpdateOpt, #stats{
+        tenant_id = Tenant, delivery_dropped = 1, delivery_dropped_qos0_msg = 1
     });
 on_delivery_dropped(_, _, _) ->
     ok.
@@ -188,15 +199,18 @@ update_rate_stats(Interval) ->
                 msg_sent = MsgSent,
                 last_msg_received = {MsgRecv0, _},
                 msg_received = MsgRecv,
-                msg_dropped = MsgDropped,
-                last_msg_dropped = {MsgDropped0, _}
+                delivery_dropped = MsgDropped,
+                last_delivery_dropped = {MsgDropped0, _}
             } = Stats,
             ets:update_element(?STATS, Tenant, [
                 {#stats.last_byte_sent, {ByteSent, rate(ByteSent, ByteSent0, Interval)}},
                 {#stats.last_byte_received, {ByteRecv, rate(ByteRecv, ByteRecv0, Interval)}},
                 {#stats.last_msg_sent, {MsgSent, rate(MsgSent, MsgSent0, Interval)}},
                 {#stats.last_msg_received, {MsgRecv, rate(MsgRecv, MsgRecv0, Interval)}},
-                {#stats.last_msg_dropped, {MsgDropped, rate(MsgDropped, MsgDropped0, Interval)}}
+                {
+                    #stats.last_delivery_dropped,
+                    {MsgDropped, rate(MsgDropped, MsgDropped0, Interval)}
+                }
             ]),
             Acc
         end,
@@ -244,7 +258,7 @@ handle_continue(load_stats, State) ->
         fun(Tenant) ->
             case mnesia:dirty_read(?DB, Tenant) of
                 [] -> ok;
-                [Stats] -> ets:insert(?STATS, Stats)
+                [Stats = #stats{}] -> ets:insert(?STATS, Stats)
             end
         end,
         Tenants
@@ -447,16 +461,19 @@ stats_to_map(Stats) ->
         tenant_id = TenantId,
         msg_received = MsgRecv,
         msg_sent = MsgSent,
-        msg_dropped = MsgDropped,
         %%last_byte_sent = {_, ByteSentRate},
         %%last_byte_sent = {_, ByteSentRate},
         last_msg_received = {_, MsgRecvRate},
         last_msg_sent = {_, MsgSentRate},
-        last_msg_dropped = {_, MsgDroppedRate},
+        last_delivery_dropped = {_, MsgDroppedRate},
         byte_received = ByteRecv,
         byte_sent = ByteSent,
-        msg_dropped_queue_full = MsgDropQueueFull,
-        msg_dropped_expired = MsgDropExpired,
+        delivery_dropped_queue_full = MsgDropQueueFull,
+        delivery_dropped_expired = MsgDropExpired,
+        delivery_dropped_no_local = MsgDropNoLocal,
+        delivery_dropped_too_large = MsgDropTooLage,
+        delivery_dropped_qos0_msg = MsgDropQos0Msg,
+        delivery_dropped = MsgDrop,
         msg_no_subscribers = MsgNoSubscribers,
         acl_failed = AclFailed,
         auth_failed = AuthFailed,
@@ -470,9 +487,12 @@ stats_to_map(Stats) ->
         msg_sent => MsgSent,
         byte_received => ByteRecv,
         byte_sent => ByteSent,
-        msg_dropped => MsgDropped,
-        msg_dropped_queue_full => MsgDropQueueFull,
-        msg_dropped_expired => MsgDropExpired,
+        delivery_dropped_queue_full => MsgDropQueueFull,
+        delivery_dropped_expired => MsgDropExpired,
+        delivery_dropped_no_local => MsgDropNoLocal,
+        delivery_dropped_too_large => MsgDropTooLage,
+        delivery_dropped_qos0_msg => MsgDropQos0Msg,
+        delivery_dropped => MsgDrop,
         msg_no_subscribers => MsgNoSubscribers,
         acl_failed => AclFailed,
         auth_failed => AuthFailed,
