@@ -136,12 +136,24 @@ t_update(_Config) ->
     Change = #{
         id => Id,
         desc => <<"NoteVersion1"/utf8>>,
-        enabled => false
+        enabled => false,
+        configs => #{quotas => #{max_sessions => 1024}}
     },
     {ok, Update1} = update_tenant(Id, Change),
     ?assertEqual(Id, maps:get(<<"id">>, Update1)),
     ?assertEqual(false, maps:get(<<"enabled">>, Update1)),
     ?assertEqual(<<"NoteVersion1"/utf8>>, maps:get(<<"desc">>, Update1)),
+    ?assertMatch(
+        #{<<"quotas">> := #{<<"max_sessions">> := 1024}}, maps:get(<<"configs">>, Update1)
+    ),
+
+    Change2 = #{id => Id, enabled => true},
+    {ok, Update2} = update_tenant(Id, Change2),
+    ?assertEqual(true, maps:get(<<"enabled">>, Update2)),
+    ?assertMatch(
+        #{<<"quotas">> := #{<<"max_sessions">> := 1024}}, maps:get(<<"configs">>, Update2)
+    ),
+
     ?assertEqual({error, {"HTTP/1.1", 400, "Bad Request"}}, update_tenant(<<"Not-Exist">>, Change)),
     ?assertEqual(
         {error, {"HTTP/1.1", 404, "Not Found"}},
