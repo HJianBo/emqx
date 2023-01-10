@@ -226,7 +226,7 @@ cast(Msg) ->
 
 -type permision() :: {stop, allow | deny}.
 
--spec on_quota_sessions(quota_action(), emqx_types:clientinfo(), term()) -> permision().
+-spec on_quota_sessions(quota_action(), map(), term()) -> permision().
 on_quota_sessions(_Action, #{tenant_id := ?NO_TENANT}, _LastPermision) ->
     {stop, allow};
 on_quota_sessions(Action, ClientInfo = #{tenant_id := TenantId}, _LastPermision) ->
@@ -361,7 +361,7 @@ handle_info(_Info, State) ->
     {noreply, State}.
 
 terminate(_Reason, _State) ->
-    mnesia:clear_table(?COUNTER),
+    _ = mnesia:clear_table(?COUNTER),
     ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -554,36 +554,30 @@ do_submit(TenantId, Usage) ->
 %% acquire & release
 
 do_acquire(N, TenantId, Resource, Buffer) ->
-    case maps:get(TenantId, Buffer, undefined) of
-        undefined ->
+    try
+        {Usage, LastSubmitTs} = maps:get(TenantId, Buffer),
+        #{max := Max, used := Used1} = maps:get(Resource, Usage),
+        Used2 = unsafe_lookup_counter(TenantId, Resource),
+        case Max >= Used1 + Used2 + N of
+            true ->
+                TBuffer = {incr(Resource, N, Usage), LastSubmitTs},
+                {allow, Buffer#{TenantId => TBuffer}};
+            false ->
+                {deny, Buffer}
+        end
+    catch
+        error:{badkey, _} ->
             {deny, Buffer};
-        {Usage, LastSubmitTs} ->
-            case maps:get(Resource, Usage, undefined) of
-                undefined ->
-                    {deny, Buffer};
-                #{max := Max, used := Used1} ->
-                    try unsafe_lookup_counter(TenantId, Resource) of
-                        Used2 ->
-                            case Max >= Used1 + Used2 + N of
-                                true ->
-                                    TBuffer = {incr(Resource, N, Usage), LastSubmitTs},
-                                    {allow, Buffer#{TenantId => TBuffer}};
-                                false ->
-                                    {deny, Buffer}
-                            end
-                    catch
-                        _:_ ->
-                            ?SLOG(
-                                warning,
-                                #{
-                                    msg => "dataset_gone_when_acquire_token",
-                                    tenant_id => TenantId,
-                                    resource => Resource
-                                }
-                            ),
-                            {deny, Buffer}
-                    end
-            end
+        error:badarg ->
+            ?SLOG(
+                warning,
+                #{
+                    msg => "dataset_gone_when_acquire_token",
+                    tenant_id => TenantId,
+                    resource => Resource
+                }
+            ),
+            {deny, Buffer}
     end.
 
 do_release(N, TenantId, Resource, Buffer) ->

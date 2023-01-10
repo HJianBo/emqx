@@ -56,7 +56,7 @@
 -record(stats, {
     key :: {node(), tenant_id(), limiter_type()},
     %% @deprecated
-    type :: limiter_type(),
+    type :: atom(),
     %% defines at emqx_limiter_server:bucket()
     obtained :: float()
 }).
