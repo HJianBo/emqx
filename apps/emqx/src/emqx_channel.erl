@@ -2073,11 +2073,12 @@ enrich_response_information(AckProps, #channel{
 
 enrich_assigned_clientid(AckProps, #channel{
     conninfo = ConnInfo,
-    clientinfo = #{clientid := ClientId}
+    clientinfo = #{clientid := GroupedClientId}
 }) ->
     case maps:get(clientid, ConnInfo) of
         %% Original ClientId is null.
         <<>> ->
+            ClientId = emqx_clientid:without_tenant(GroupedClientId),
             AckProps#{'Assigned-Client-Identifier' => ClientId};
         _Origin ->
             AckProps
