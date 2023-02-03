@@ -22,17 +22,13 @@
 -include_lib("stdlib/include/ms_transform.hrl").
 -include_lib("snabbkaffe/include/snabbkaffe.hrl").
 
-%% Mnesia
--export([mnesia/1]).
--boot_mnesia({mnesia, [boot]}).
-
 %% APIs
--export([start_link/2]).
-
--export([update/2, info/1]).
+-export([start_link/0]).
 
 %% helpers
--export([bucket_id/2]).
+-export([bucket_id/1]).
+
+-export([create/3, update/3, info/2, remove/2]).
 
 %% gen_server callbacks
 -export([
@@ -45,60 +41,52 @@
 ]).
 
 -type state() :: #{
-    tenant_id := tenant_id(),
-    limiters := #{limiter_type() => limiter()},
-    last_stats := #{limiter_type() => #{node() => pos_integer()}},
+    servers := #{limiter_type() => pid()},
+    buckets := buckets(),
     tref := reference() | undefined
 }.
 
--define(STATS_TAB, emqx_tenancy_limiter_stats).
+-type buckets() :: #{tenant_id() => #{limiter_type() => bucket_info()}}.
 
--record(stats, {
-    key :: {node(), tenant_id(), limiter_type()},
-    %% @deprecated
-    type :: atom(),
-    %% defines at emqx_limiter_server:bucket()
-    obtained :: float()
-}).
-
--type limiter() :: #{
+-type bucket_info() :: #{
     rate := pos_integer(),
     allocated_rate := pos_integer(),
-    server := pid(),
     latest_cluster_rate := float(),
-    latest_node_rate := float()
+    latest_node_rate := float(),
+    latest_node_obtained := #{node() => non_neg_integer()}
 }.
 
 -define(DEFAULT_TIMEOUT, 5000).
--define(DEFAULT_SERVER_PERIOD, 1000).
-
-%%--------------------------------------------------------------------
-%% Mnesia
-%%--------------------------------------------------------------------
-
--spec mnesia(boot) -> ok.
-mnesia(boot) ->
-    ok = mria:create_table(?STATS_TAB, [
-        {type, set},
-        {rlog_shard, ?TENANCY_SHARD},
-        {storage, ram_copies},
-        {record_name, stats},
-        {attributes, record_info(fields, stats)},
-        {storage_properties, [
-            {ets, [
-                {read_concurrency, true},
-                {write_concurrency, true}
-            ]}
-        ]}
-    ]).
+-define(DEFAULT_SERVER_PERIOD, 100).
 
 %%--------------------------------------------------------------------
 %% APIs
 %%--------------------------------------------------------------------
 
--spec start_link(tenant_id(), limiter_config()) -> {ok, pid()} | ignore | {error, term()}.
-start_link(TenantId, Cfg) ->
-    gen_server:start_link(?MODULE, [TenantId, convert_key(Cfg)], []).
+-spec start_link() -> {ok, pid()} | ignore | {error, term()}.
+start_link() ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+
+-spec create(pid(), tenant_id(), limiter_config()) ->
+    ok
+    | {error, term()}.
+create(Pid, TenantId, Cfg) ->
+    call(Pid, {update, TenantId, convert_key(Cfg)}).
+
+-spec update(pid(), tenant_id(), limiter_config()) -> ok | {error, term()}.
+update(Pid, TenantId, Cfg) ->
+    call(Pid, {update, TenantId, convert_key(Cfg)}).
+
+-spec remove(pid(), tenant_id()) -> ok.
+remove(Pid, TenantId) ->
+    call(Pid, {remove, TenantId}).
+
+-spec info(pid(), tenant_id()) -> [bucket_info()].
+info(Pid, TenantId) ->
+    call(Pid, {info, TenantId}).
+
+call(Pid, Msg) ->
+    gen_server:call(Pid, Msg).
 
 convert_key(Cfg) ->
     maps:fold(fun(Key, Val, Acc) -> Acc#{type(Key) => Val} end, #{}, Cfg).
@@ -106,69 +94,77 @@ convert_key(Cfg) ->
 type(max_messages_in) -> message_in;
 type(max_bytes_in) -> bytes_in.
 
--spec update(pid(), limiter_config()) -> ok | {error, term()}.
-update(Pid, Cfg) ->
-    call(Pid, {update, convert_key(Cfg)}).
-
--spec info(pid()) -> [limiter_info()].
-info(Pid) ->
-    call(Pid, info).
-
-call(Pid, Msg) ->
-    gen_server:call(Pid, Msg).
-
 %%--------------------------------------------------------------------
 %% gen_server callbacks
 %%--------------------------------------------------------------------
 
 -spec init(list()) -> {ok, state()}.
-init([TenantId, Cfg]) ->
+init([]) ->
     process_flag(trap_exit, true),
-    Limiters = start_limiter_servers(TenantId, Cfg),
     State = #{
-        tenant_id => TenantId,
-        limiters => Limiters,
+        servers => #{},
         %% TODO: load fisrt
-        last_stats => #{},
+        buckets => #{},
         tref => undefined
     },
     {ok, ensure_rebalance_timer(State)}.
 
-handle_call(info, _From, State = #{limiters := Limiters}) ->
-    Infos = maps:fold(
-        fun(
-            Type,
-            #{
-                rate := Rate,
-                allocated_rate := ARate,
-                latest_cluster_rate := ClusterRate,
-                latest_node_rate := NodeRate,
-                server := Pid
-            },
-            Acc
-        ) ->
-            Info = #{
-                type => Type,
-                rate => Rate,
-                allocated_rate => ARate,
-                latest_cluster_rate => ClusterRate,
-                latest_node_rate => NodeRate,
-                %% XXX: Other platforms not support big-integer ?
-                obtained => lookup_obtained(Pid)
-            },
-            [Info | Acc]
+%% FIXME:
+handle_call({info, TenantId}, _From, State = #{buckets := Buckets}) ->
+    Reply =
+        case maps:get(TenantId, Buckets, undefined) of
+            undefined ->
+                undefined;
+            BucketsInfo ->
+                maps:fold(
+                    fun(
+                        Type,
+                        #{
+                            rate := Rate,
+                            allocated_rate := ARate,
+                            latest_cluster_rate := ClusterRate,
+                            latest_node_rate := NodeRate,
+                            server := _Pid
+                        },
+                        Acc
+                    ) ->
+                        Info = #{
+                            type => Type,
+                            rate => Rate,
+                            allocated_rate => ARate,
+                            latest_cluster_rate => ClusterRate,
+                            latest_node_rate => NodeRate
+                            %% FIXME
+                            %%obtained => lookup_obtained(Pid)
+                        },
+                        [Info | Acc]
+                    end,
+                    [],
+                    BucketsInfo
+                )
         end,
-        [],
-        Limiters
-    ),
-    {reply, Infos, State};
+    {reply, Reply, State};
 handle_call(
-    {update, Cfg},
+    {update, TenantId, Cfg},
     _From,
-    State = #{tenant_id := TenantId, limiters := Limiters}
+    State = #{servers := Servers, buckets := Buckets}
 ) ->
-    Limiters1 = do_update(TenantId, maps:to_list(Cfg), Limiters),
-    {reply, ok, State#{limiters := Limiters1}};
+    {Servers1, Buckets1} = do_update(maps:to_list(Cfg), TenantId, Servers, Buckets),
+    {reply, ok, State#{servers := Servers1, buckets := Buckets1}};
+handle_call(
+    {remove, TenantId},
+    _From,
+    State = #{buckets := Buckets}
+) ->
+    Buckets1 =
+        case maps:take(TenantId, Buckets) of
+            error ->
+                Buckets;
+            {BucketsInfo, B} ->
+                do_del_bucket(TenantId, BucketsInfo),
+                B
+        end,
+    {reply, ok, State#{buckets := Buckets1}};
 handle_call(_Request, _From, State) ->
     {reply, {error, unexpected_call}, State}.
 
@@ -177,21 +173,18 @@ handle_cast(_Msg, State) ->
 
 handle_info(
     {timeout, _Ref, rebalance},
-    State = #{tenant_id := TenantId, limiters := Limiters, last_stats := LastStats}
+    State = #{servers := Servers, buckets := Buckets}
 ) ->
-    Usages = collect_obtained(Limiters),
-    State2 =
-        case has_new_tokens_obtained(Usages, LastStats) of
-            true ->
-                NewStats = fetch_current_stats(TenantId),
-                ok = report_usage(TenantId, Usages),
-                State1 = rebalance(Usages, NewStats, State),
-                ?tp(debug, rebalanced, #{tenant_id => TenantId}),
-                State1;
-            false ->
-                State
-        end,
-    {noreply, ensure_rebalance_timer(State2#{tref := undefined})};
+    %% #{tenant_id() => #{limiter_type() => float()}}
+    Usage0 = collect_obtained(Servers),
+    Usage1 = filter_out_unchanged_tenants(Usage0, Buckets),
+
+    ok = emqx_tenancy_limiter_storage:insert(Usage1),
+    Buckets1 = rebalance_changed_tenants(Usage1, Buckets),
+    ok = batch_update_buckets_rate(Buckets1, Servers),
+
+    Buckets2 = maps:merge(Buckets, Buckets1),
+    {noreply, ensure_rebalance_timer(State#{buckets := Buckets2, tref := undefined})};
 %% TODO: handle process down
 handle_info(_Info, State) ->
     {noreply, State}.
@@ -206,52 +199,76 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal funcs
 %%--------------------------------------------------------------------
 
-start_limiter_servers(TenantId, Cfg) ->
-    maps:map(
-        fun(Type, Rate) ->
-            start_limiter_server(TenantId, Type, Rate)
+do_update([], _TenantId, Servers, Buckets) ->
+    {Servers, Buckets};
+do_update([{Type, Rate} | More], TenantId, Servers, Buckets) ->
+    Server =
+        case maps:get(Type, Servers, undefined) of
+            undefined ->
+                start_limiter_server(Type);
+            Pid ->
+                Pid
         end,
-        Cfg
-    ).
+    ok = ensure_bucket_rate(Server, TenantId, Rate),
 
-start_limiter_server(TenantId, Type, Rate) ->
-    LimiterCfg = #{rate => inner_rate(Rate), burst => 0, period => ?DEFAULT_SERVER_PERIOD},
+    Info = emqx_map_lib:deep_get([TenantId, Type], Buckets, #{}),
+    Info1 = Info#{rate => Rate, allocated_rate => Rate},
+    Buckets1 = emqx_map_lib:deep_put([TenantId, Type], Buckets, Info1),
+
+    do_update(More, TenantId, Servers#{Type => Server}, Buckets1).
+
+start_limiter_server(Type) ->
+    LimiterCfg = #{
+        rate => infinity,
+        burst => 0,
+        period => ?DEFAULT_SERVER_PERIOD
+    },
     {ok, Pid} = emqx_limiter_server:start_link(
         noname,
         Type,
         LimiterCfg
     ),
-    ok = set_bucket_rate(TenantId, Type, Pid, Rate),
-    #{
-        rate => Rate,
-        allocated_rate => Rate,
-        server => Pid,
-        latest_cluster_rate => 0,
-        latest_node_rate => 0
-    }.
+    Pid.
 
-do_update(_, [], Limiters) ->
-    Limiters;
-do_update(TenantId, [{Type, Rate} | More], Limiters) ->
-    Limiter =
-        case maps:get(Type, Limiters, undefined) of
-            undefined ->
-                start_limiter_server(TenantId, Type, Rate);
-            Limiter0 = #{server := Pid} ->
-                ok = set_server_rate(Pid, Type, Rate),
-                ok = set_bucket_rate(TenantId, Type, Pid, Rate),
-                Limiter0#{rate => Rate, allocated_rate => Rate}
-        end,
-    do_update(TenantId, More, Limiters#{Type => Limiter}).
-
-set_server_rate(Pid, Type, Rate) ->
-    ok = emqx_limiter_server:update_root_rate(Pid, Type, Rate).
-
-set_bucket_rate(TenantId, Type, Pid, Rate) ->
+ensure_bucket_rate(Pid, TenantId, Rate) ->
     ok = emqx_limiter_server:add_bucket(
         Pid,
-        bucket_id(TenantId, Type),
+        bucket_id(TenantId),
         bucket_cfg(Rate)
+    ).
+
+do_del_bucket(TenantId, BucketsInfo) ->
+    %% FIXME: delete old stats
+    maps:foreach(
+        fun(_Type, _BucketInfo = #{server := Pid}) ->
+            emqx_limiter_server:del_bucket(Pid, TenantId)
+        end,
+        BucketsInfo
+    ).
+
+batch_update_buckets_rate(Buckets, Servers) ->
+    Rates =
+        maps:fold(
+            fun(TenantId, BucketsInfo, Acc0) ->
+                maps:fold(
+                    fun(Type, _BucketInfo = #{allocated_rate := Rate}, Acc1) ->
+                        M = maps:get(Type, Acc1, #{}),
+                        Acc1#{Type => M#{TenantId => Rate}}
+                    end,
+                    Acc0,
+                    BucketsInfo
+                )
+            end,
+            #{},
+            Buckets
+        ),
+
+    maps:foreach(
+        fun(Type, Rates1) ->
+            Pid = maps:get(Type, Servers),
+            ok = emqx_limiter_server:update_buckets_rate(Pid, Rates1)
+        end,
+        Rates
     ).
 
 %%--------------------------------------------------------------------
@@ -261,93 +278,84 @@ ensure_rebalance_timer(State = #{tref := undefined}) ->
     Ref = emqx_misc:start_timer(?DEFAULT_TIMEOUT, rebalance),
     State#{tref := Ref}.
 
-has_new_tokens_obtained(
-    #{
-        message_in := MsgIn,
-        bytes_in := BytesIn
-    },
-    LastStats
-) ->
-    Node = node(),
-    LastMsgIn = maps:get(Node, maps:get(message_in, LastStats, #{}), 0),
-    LastBytesIn = maps:get(Node, maps:get(bytes_in, LastStats, #{}), 0),
-    not (MsgIn == LastMsgIn andalso BytesIn == LastBytesIn).
+-type usage() :: #{tenant_id() => #{limiter_type() => float()}}.
 
-fetch_current_stats(TenantId) ->
-    Nodes = nodes(),
-    Stats1 = lists:flatten(
-        lists:map(
-            fun(Node) ->
-                ets:lookup(?STATS_TAB, {Node, TenantId, message_in}) ++
-                    ets:lookup(?STATS_TAB, {Node, TenantId, bytes_in})
-            end,
-            Nodes
-        )
-    ),
-    lists:foldl(
-        fun(#stats{key = {Node, _, Type}, obtained = Obtained}, Acc) ->
-            M = maps:get(Type, Acc, #{}),
-            Acc#{Type => M#{Node => Obtained}}
+-spec collect_obtained([pid()]) -> usage().
+collect_obtained(Servers) ->
+    maps:fold(
+        fun(Type, Pid, Acc0) ->
+            #{buckets := Buckets} = emqx_limiter_server:info(Pid),
+            %% bucket name is TenantId
+            maps:fold(
+                fun(TenantId, #{obtained := Obtained}, Acc1) ->
+                    AllTypes = maps:get(TenantId, Acc1, #{}),
+                    Acc1#{TenantId => AllTypes#{Type => erlang:floor(Obtained)}}
+                end,
+                Acc0,
+                Buckets
+            )
         end,
         #{},
-        Stats1
+        Servers
     ).
 
-collect_obtained(Limiters) ->
-    maps:map(fun(_, #{server := Pid}) -> lookup_obtained(Pid) end, Limiters).
-
-lookup_obtained(Pid) ->
-    #{buckets := Buckets} = emqx_limiter_server:info(Pid),
-    %% assert: only one bucket in limiter server
-    [#{obtained := Obtained}] = maps:values(Buckets),
-    Obtained.
-
-report_usage(TenantId, Usages) ->
-    maps:foreach(
-        fun(Type, Obtained) ->
-            Stats = #stats{key = {node(), TenantId, Type}, obtained = Obtained},
-            try
-                %% A `no_exists` error may be thrown here when the
-                %% core node is missing or not ready
-                mria:dirty_write(?STATS_TAB, Stats)
-            catch
-                _:Reason ->
-                    ?SLOG(warning, #{
-                        msg => "failed_report_limiter_usage",
-                        tenant_id => TenantId,
-                        stats => Stats,
-                        reason => Reason
-                    })
+-spec filter_out_unchanged_tenants(usage(), buckets()) -> usage().
+filter_out_unchanged_tenants(Usage, Buckets) ->
+    maps:filter(
+        fun(TenantId, AllTypes) ->
+            case maps:get(TenantId, Buckets, undefined) of
+                undefined ->
+                    true;
+                BucketsInfo ->
+                    is_new_tokens_obtained(BucketsInfo, maps:iterator(AllTypes))
             end
         end,
-        Usages
+        Usage
     ).
 
-rebalance(Usages, NewStats, State) when is_map(Usages) ->
-    rebalance(maps:to_list(Usages), NewStats, State);
-rebalance([], _, State) ->
-    State;
-rebalance(
-    [{Type, Obtained} | More],
-    NewStats0,
-    State = #{tenant_id := TenantId, limiters := Limiters, last_stats := LastStats0}
-) ->
+is_new_tokens_obtained(BucketsInfo, Iter) ->
+    case maps:next(Iter) of
+        none ->
+            false;
+        {Type, Obtained, Iter1} ->
+            Last = emqx_map_lib:deep_get([Type, latest_node_obtained, node()], BucketsInfo, 0),
+            Obtained > Last orelse is_new_tokens_obtained(BucketsInfo, Iter1)
+    end.
+
+-spec rebalance_changed_tenants(usage(), buckets()) -> buckets().
+rebalance_changed_tenants(Usage, Buckets) ->
+    maps:map(
+        fun(TenantId, TypedUsage) ->
+            maps:map(
+                fun(Type, Obtained) ->
+                    BucketInfo = emqx_map_lib:deep_get([TenantId, Type], Buckets),
+                    do_rebalance_tenant(TenantId, Type, Obtained, BucketInfo)
+                end,
+                TypedUsage
+            )
+        end,
+        Usage
+    ).
+
+do_rebalance_tenant(
+    TenantId,
+    Type,
+    _Obtained,
     #{
         rate := ClusterRate,
-        allocated_rate := AllocatedRate,
-        server := ServerPid
-    } = Limiter = maps:get(Type, Limiters),
+        allocated_rate := AllocatedRate
+    } = BucketInfo
+) ->
+    LastNodesObtained = maps:get(latest_node_obtained, BucketInfo, #{}),
+    LatestNodesObtained = all_nodes_obtained(TenantId, Type),
 
-    AllowedNodeRate = allowed_node_rate(Type, ClusterRate, State),
-
-    LastStats = maps:get(Type, LastStats0, #{}),
-    NewStats = maps:put(node(), Obtained, maps:get(Type, NewStats0, #{})),
-
-    Diff = obtained_tokens_per_node(NewStats, LastStats),
+    Diff = obtained_tokens_per_node(LatestNodesObtained, LastNodesObtained),
     Rate = maps:map(fun(_Node, Deta) -> Deta * 1000 / ?DEFAULT_TIMEOUT end, Diff),
 
     LatestClusterRate = lists:sum(maps:values(Rate)),
     LatestNodeRate = maps:get(node(), Rate),
+
+    AllowedNodeRate = allowed_node_rate(Type, ClusterRate),
 
     NAllocatedRate = calculate_new_allocated_rate(
         ClusterRate,
@@ -356,18 +364,28 @@ rebalance(
         LatestClusterRate,
         LatestNodeRate
     ),
-    ok = set_bucket_rate(TenantId, Type, ServerPid, NAllocatedRate),
-    NLimiter = Limiter#{
+    BucketInfo#{
         allocated_rate => NAllocatedRate,
         latest_cluster_rate => LatestClusterRate,
-        latest_node_rate => LatestNodeRate
-    },
-    rebalance(More, NewStats0, State#{
-        limiters := Limiters#{Type => NLimiter},
-        last_stats := LastStats0#{Type => NewStats}
-    }).
+        latest_node_rate => LatestNodeRate,
+        latest_node_obtained => LatestNodesObtained
+    }.
 
-allowed_node_rate(_Type, ClusterRate, _) ->
+all_nodes_obtained(TenantId, Type) ->
+    lists:foldl(
+        fun(Node, Acc) ->
+            case emqx_tenancy_limiter_storage:lookup(Node, TenantId, Type) of
+                undefined ->
+                    Acc;
+                Obtained ->
+                    Acc#{Node => Obtained}
+            end
+        end,
+        #{},
+        [node() | nodes()]
+    ).
+
+allowed_node_rate(_Type, ClusterRate) ->
     %% FIXME: Averaging by number of node connections
     ClusterRate / (length(nodes()) + 1).
 
@@ -422,9 +440,9 @@ speed_up(CurrentRate, ClusterRate) ->
 %%--------------------------------------------------------------------
 %% helpers
 
--spec bucket_id(tenant_id(), limiter_type()) -> bucket_id().
-bucket_id(TenantId, Type) ->
-    <<TenantId/binary, "-", (atom_to_binary(Type))/binary>>.
+-spec bucket_id(tenant_id()) -> bucket_id().
+bucket_id(TenantId) when is_binary(TenantId) ->
+    TenantId.
 
 bucket_cfg(Rate) ->
     #{
