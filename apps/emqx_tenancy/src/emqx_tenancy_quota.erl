@@ -37,6 +37,8 @@
 %% Node level APIs
 -export([do_create/2, do_update/2, do_remove/1, do_info/1]).
 
+-export([number_of_sessions/1, number_of_sessions/2]).
+
 -define(COUNTER, emqx_tenancy_quota_counter).
 
 -define(DEFAULT_SUBMIT_DELAY, 100).
@@ -233,6 +235,18 @@ call(Msg) ->
 
 cast(Msg) ->
     gen_server:cast(?MODULE, Msg).
+
+number_of_sessions(TenantId) ->
+    case ets:lookup(?COUNTER, {TenantId, sessions}) of
+        [] -> 0;
+        [{_, _, N}] -> N
+    end.
+
+number_of_sessions(TenantId, Node) ->
+    case ets:lookup(?COUNTER, {TenantId, sessions, Node}) of
+        [] -> 0;
+        [{_, _, N}] -> N
+    end.
 
 %%--------------------------------------------------------------------
 %% Hooks Callback

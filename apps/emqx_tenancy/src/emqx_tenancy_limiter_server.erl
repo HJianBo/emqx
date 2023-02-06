@@ -49,6 +49,7 @@
 -type buckets() :: #{tenant_id() => #{limiter_type() => bucket_info()}}.
 
 -type bucket_info() :: #{
+    server := pid(),
     rate := pos_integer(),
     allocated_rate := pos_integer(),
     latest_cluster_rate := float(),
@@ -57,7 +58,7 @@
 }.
 
 -define(DEFAULT_TIMEOUT, 5000).
--define(DEFAULT_SERVER_PERIOD, 100).
+-define(DEFAULT_SERVER_PERIOD, 1000).
 
 %%--------------------------------------------------------------------
 %% APIs
@@ -103,13 +104,12 @@ init([]) ->
     process_flag(trap_exit, true),
     State = #{
         servers => #{},
-        %% TODO: load fisrt
+        %% FIXME: load fisrt
         buckets => #{},
         tref => undefined
     },
     {ok, ensure_rebalance_timer(State)}.
 
-%% FIXME:
 handle_call({info, TenantId}, _From, State = #{buckets := Buckets}) ->
     Reply =
         case maps:get(TenantId, Buckets, undefined) of
@@ -123,8 +123,7 @@ handle_call({info, TenantId}, _From, State = #{buckets := Buckets}) ->
                             rate := Rate,
                             allocated_rate := ARate,
                             latest_cluster_rate := ClusterRate,
-                            latest_node_rate := NodeRate,
-                            server := _Pid
+                            latest_node_rate := NodeRate
                         },
                         Acc
                     ) ->
@@ -134,8 +133,6 @@ handle_call({info, TenantId}, _From, State = #{buckets := Buckets}) ->
                             allocated_rate => ARate,
                             latest_cluster_rate => ClusterRate,
                             latest_node_rate => NodeRate
-                            %% FIXME
-                            %%obtained => lookup_obtained(Pid)
                         },
                         [Info | Acc]
                     end,
@@ -184,6 +181,7 @@ handle_info(
     ok = batch_update_buckets_rate(Buckets1, Servers),
 
     Buckets2 = maps:merge(Buckets, Buckets1),
+    ?tp(debug, rebalanced, #{count => maps:size(Usage1)}),
     {noreply, ensure_rebalance_timer(State#{buckets := Buckets2, tref := undefined})};
 %% TODO: handle process down
 handle_info(_Info, State) ->
@@ -212,7 +210,14 @@ do_update([{Type, Rate} | More], TenantId, Servers, Buckets) ->
     ok = ensure_bucket_rate(Server, TenantId, Rate),
 
     Info = emqx_map_lib:deep_get([TenantId, Type], Buckets, #{}),
-    Info1 = Info#{rate => Rate, allocated_rate => Rate},
+    Info1 = Info#{
+        server => Server,
+        rate => Rate,
+        allocated_rate => Rate,
+        latest_cluster_rate => 0,
+        latest_node_rate => 0,
+        latest_node_obtained => #{}
+    },
     Buckets1 = emqx_map_lib:deep_put([TenantId, Type], Buckets, Info1),
 
     do_update(More, TenantId, Servers#{Type => Server}, Buckets1).
@@ -253,7 +258,7 @@ batch_update_buckets_rate(Buckets, Servers) ->
                 maps:fold(
                     fun(Type, _BucketInfo = #{allocated_rate := Rate}, Acc1) ->
                         M = maps:get(Type, Acc1, #{}),
-                        Acc1#{Type => M#{TenantId => Rate}}
+                        Acc1#{Type => M#{TenantId => inner_rate(Rate)}}
                     end,
                     Acc0,
                     BucketsInfo
@@ -355,7 +360,7 @@ do_rebalance_tenant(
     LatestClusterRate = lists:sum(maps:values(Rate)),
     LatestNodeRate = maps:get(node(), Rate),
 
-    AllowedNodeRate = allowed_node_rate(Type, ClusterRate),
+    AllowedNodeRate = allowed_node_rate(TenantId, ClusterRate),
 
     NAllocatedRate = calculate_new_allocated_rate(
         ClusterRate,
@@ -385,9 +390,16 @@ all_nodes_obtained(TenantId, Type) ->
         [node() | nodes()]
     ).
 
-allowed_node_rate(_Type, ClusterRate) ->
-    %% FIXME: Averaging by number of node connections
-    ClusterRate / (length(nodes()) + 1).
+allowed_node_rate(TenantId, ClusterRate) ->
+    SessInNode = emqx_tenancy_quota:number_of_sessions(TenantId, node()),
+    SessInCluster = emqx_tenancy_quota:number_of_sessions(TenantId),
+    case {SessInNode, SessInCluster} of
+        %% Set the initial value to tenant's rate
+        {0, _} -> ClusterRate;
+        %%
+        {_, 0} -> ClusterRate;
+        _ -> (SessInNode / SessInCluster) * ClusterRate
+    end.
 
 obtained_tokens_per_node(NewStats, LastStats) ->
     maps:fold(

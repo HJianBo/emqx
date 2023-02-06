@@ -89,7 +89,7 @@ info(TenantId) ->
             case return_ok_or_error(NodesResult) of
                 ok ->
                     lists:foldl(
-                        fun({Node, {ok, Info}}, Acc) ->
+                        fun({Node, Info}, Acc) ->
                             Acc#{Node => Info}
                         end,
                         #{},
