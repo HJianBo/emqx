@@ -243,38 +243,47 @@ cast(Msg) ->
 
 -type permision() :: {stop, allow | deny}.
 
--spec on_quota_sessions(quota_action(), map(), term()) -> permision().
+-spec on_quota_sessions(quota_action_name(), map(), term()) -> permision().
 on_quota_sessions(_Action, #{tenant_id := ?NO_TENANT}, _LastPermision) ->
     {stop, allow};
-on_quota_sessions(Action, ClientInfo = #{tenant_id := TenantId}, _LastPermision) ->
-    case is_acquire_action(Action) of
+on_quota_sessions(acquire, ClientInfo = #{tenant_id := TenantId}, _LastPermision) ->
+    case ?MODULE:is_tenant_enabled(TenantId) of
         true ->
-            case ?MODULE:is_tenant_enabled(TenantId) of
-                true ->
-                    Res = exec_quota_action(Action, [TenantId, sessions]),
-                    case Res of
-                        {stop, allow} ->
-                            ClientId = maps:get(clientid, ClientInfo),
-                            emqx_tenancy_resm:monitor_session_proc(
-                                self(),
-                                TenantId,
-                                ClientId
-                            );
-                        _ ->
-                            ok
-                    end,
-                    Res;
-                false ->
-                    {stop, deny}
-            end;
+            ClientId = maps:get(clientid, ClientInfo),
+            Res =
+                case has_counted_as_persisted_session(ClientId) of
+                    false ->
+                        exec_quota_action(acquire, [TenantId, sessions]);
+                    true ->
+                        force_incr_quota_count(TenantId, sessions)
+                end,
+            case Res of
+                {stop, allow} ->
+                    emqx_tenancy_resm:monitor_session_proc(
+                        self(),
+                        TenantId,
+                        ClientId
+                    );
+                _ ->
+                    ok
+            end,
+            Res;
         false ->
-            exec_quota_action(Action, [TenantId, sessions])
-    end.
+            {stop, deny}
+    end;
+on_quota_sessions(release, #{tenant_id := TenantId}, _LastPermision) ->
+    exec_quota_action(release, [TenantId, sessions]).
 
 is_tenant_enabled(TenantId) ->
     case ets:lookup(?TENANCY, TenantId) of
         [] -> false;
         [#tenant{enabled = Enabled}] -> Enabled == true
+    end.
+
+has_counted_as_persisted_session(ClientId) ->
+    case emqx_cm:lookup_channels(ClientId) of
+        [] -> false;
+        _ -> true
     end.
 
 -spec on_quota_authn_users(quota_action(), tenant_id(), term()) -> permision().
@@ -294,10 +303,6 @@ exec_quota_action(Action, Args) when Action == acquire; Action == release ->
 exec_quota_action({Action, N}, Args) when Action == acquire; Action == release ->
     erlang:apply(?MODULE, Action, [N | Args]).
 
-is_acquire_action(acquire) -> true;
-is_acquire_action({acquire, _}) -> true;
-is_acquire_action(_) -> false.
-
 acquire(N, TenantId, Resource) ->
     case call({acquire, N, TenantId, Resource}) of
         allow ->
@@ -316,6 +321,14 @@ release(N, TenantId, Resource) ->
     %% Note: return `allow` regardless of whether the resource exists
     %% or it is sufficiently to free
     {stop, allow}.
+
+force_incr_quota_count(TenantId, Resource = sessions) ->
+    case call({incr, 1, TenantId, Resource}) of
+        allow ->
+            {stop, allow};
+        deny ->
+            {stop, deny}
+    end.
 
 %%--------------------------------------------------------------------
 %% gen_server callbacks
@@ -361,6 +374,13 @@ handle_call(
     State = #{buffer := Buffer}
 ) ->
     {Reply, Buffer1} = do_acquire(N, TenantId, Resource, Buffer),
+    {reply, Reply, submit(TenantId, State#{buffer := Buffer1})};
+handle_call(
+    {incr, N, TenantId, Resource},
+    _From,
+    State = #{buffer := Buffer}
+) ->
+    {Reply, Buffer1} = do_incr(N, TenantId, Resource, Buffer),
     {reply, Reply, submit(TenantId, State#{buffer := Buffer1})}.
 
 handle_cast({released, N, TenantId, Resource}, State = #{buffer := Buffer}) ->
@@ -585,6 +605,26 @@ do_acquire(N, TenantId, Resource, Buffer) ->
             false ->
                 {deny, Buffer}
         end
+    catch
+        error:{badkey, _} ->
+            {deny, Buffer};
+        error:badarg ->
+            ?SLOG(
+                warning,
+                #{
+                    msg => "dataset_gone_when_acquire_token",
+                    tenant_id => TenantId,
+                    resource => Resource
+                }
+            ),
+            {deny, Buffer}
+    end.
+
+do_incr(N, TenantId, Resource, Buffer) ->
+    try
+        {Usage, LastSubmitTs} = maps:get(TenantId, Buffer),
+        TBuffer = {incr(Resource, N, Usage), LastSubmitTs},
+        {allow, Buffer#{TenantId => TBuffer}}
     catch
         error:{badkey, _} ->
             {deny, Buffer};

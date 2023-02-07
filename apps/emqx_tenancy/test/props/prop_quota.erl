@@ -73,7 +73,9 @@ prop_load_unload() ->
             ),
             ?assertEqual(
                 deny,
-                emqx_hooks:run_fold('quota.sessions', [acquire, #{tenant_id => TenantId}], allow)
+                emqx_hooks:run_fold(
+                    'quota.sessions', [acquire, #{tenant_id => TenantId, clientid => <<>>}], allow
+                )
             ),
 
             ?assertEqual(
@@ -107,6 +109,7 @@ do_setup() ->
     net_kernel:start([?NODENAME, longnames]),
     ok = meck:new(emqx_tenancy_resm, [passthrough, no_history]),
     ok = meck:new(emqx_tenancy_quota, [passthrough, no_history]),
+    ok = meck:new(emqx_cm, [passthrough, no_history]),
     ok = meck:expect(
         emqx_tenancy_resm,
         monitor_session_proc,
@@ -117,14 +120,19 @@ do_setup() ->
         is_tenant_enabled,
         fun(_) -> true end
     ),
+    ok = meck:expect(
+        emqx_cm,
+        lookup_channels,
+        fun(_) -> [] end
+    ),
     emqx_common_test_helpers:boot_modules(all),
     emqx_common_test_helpers:start_apps([]),
     ok.
 
 do_teardown(_) ->
     emqx_common_test_helpers:stop_apps([]),
-    ok = meck:unload(emqx_tenancy_quota),
-    ok = meck:unload(emqx_tenancy_resm).
+    _ = meck:unload(),
+    ok.
 
 %%--------------------------------------------------------------------
 %% model
@@ -142,7 +150,7 @@ command(_State) ->
         {call, emqx_tenancy_quota, update, [tenant_id(), quota_config()]},
         {call, emqx_tenancy_quota, remove, [tenant_id()]},
         {call, emqx_tenancy_quota, info, [tenant_id()]},
-        {call, emqx_tenancy_quota, on_quota_sessions, [quota_action(), clientinfo(), allow]},
+        {call, emqx_tenancy_quota, on_quota_sessions, [quota_action_name(), clientinfo(), allow]},
         {call, emqx_tenancy_quota, on_quota_authn_users, [quota_action(), tenant_id(), allow]},
         {call, emqx_tenancy_quota, on_quota_authz_rules, [quota_action(), tenant_id(), allow]},
         %% misc
@@ -313,6 +321,9 @@ quota_config() ->
             #{max_sessions => A, max_authn_users => B, max_authz_rules => C}
         end
     ).
+
+quota_action_name() ->
+    oneof([acquire, release]).
 
 quota_action() ->
     oneof([acquire, release, {acquire, pos_integer()}, {release, pos_integer()}]).
