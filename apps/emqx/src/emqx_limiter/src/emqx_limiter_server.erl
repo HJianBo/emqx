@@ -52,7 +52,8 @@
     restart/2,
     update_config/2,
     update_config/3,
-    update_root_rate/3
+    update_root_rate/3,
+    update_buckets_rate/2
 ]).
 
 %% number of tokens generated per period
@@ -138,6 +139,10 @@ update_config(Pid, Type, Config) ->
 update_root_rate(Pid, Type, Rate) ->
     call(Pid, {update_root_rate, Type, Rate}).
 
+-spec update_buckets_rate(pid(), #{bucket_name() => rate()}) -> ok.
+update_buckets_rate(Pid, Rates) ->
+    call(Pid, {update_buckets_rate, Rates}).
+
 -spec start_link(atom(), limiter_type(), hocons:config()) -> _.
 start_link(noname, Type, Cfg) ->
     gen_server:start_link(?MODULE, [Type, Cfg], []).
@@ -195,6 +200,13 @@ handle_call(
     State = #{type := Type, root := Root}
 ) ->
     NewState = State#{root := Root#{rate := Rate}},
+    {reply, ok, NewState};
+handle_call(
+    {update_buckets_rate, Rates},
+    _From,
+    State
+) ->
+    NewState = do_update_buckets_rate(Rates, State),
     {reply, ok, NewState};
 handle_call({add_bucket, Id, Cfg}, _From, State) ->
     NewState = do_add_bucket(Id, Cfg, State),
@@ -467,6 +479,22 @@ do_del_bucket(Id, #{type := Type, buckets := Buckets} = State) ->
             emqx_limiter_manager:delete_bucket(Id, Type),
             State#{buckets := maps:remove(Id, Buckets)}
     end.
+
+do_update_buckets_rate(Rates, #{buckets := Buckets} = State) ->
+    Buckets1 =
+        maps:fold(
+            fun(Id, Rate, Acc) ->
+                case maps:get(Id, Acc, undefined) of
+                    undefined ->
+                        Acc;
+                    Bucket ->
+                        Acc#{Id := Bucket#{rate := Rate}}
+                end
+            end,
+            Buckets,
+            Rates
+        ),
+    State#{buckets := Buckets1}.
 
 -spec get_initial_val(hocons:config()) -> decimal().
 get_initial_val(

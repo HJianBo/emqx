@@ -77,9 +77,7 @@
     %% Rate occurred on the cluster in last 5s
     latest_cluster_rate := float(),
     %% Rate occurred on this node in last 5s
-    latest_node_rate := float(),
-    %% Number of assigned tokens
-    obtained := float()
+    latest_node_rate := float()
 }.
 
 -record(tenant, {

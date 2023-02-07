@@ -33,6 +33,8 @@
 %% Supervisor callbacks
 -export([init/1]).
 
+-define(PID, whereis(emqx_tenancy_limiter_server)).
+
 %%--------------------------------------------------------------------
 %% APIs
 
@@ -41,40 +43,19 @@ start_link() ->
 
 -spec create(tenant_id(), limiter_config()) -> ok | {error, term()}.
 create(TenantId, Config) ->
-    case start_child(TenantId, Config) of
-        {ok, _Pid} ->
-            ok;
-        {error, _} = Err ->
-            Err
-    end.
+    emqx_tenancy_limiter_server:create(?PID, TenantId, Config).
 
 -spec update(tenant_id(), limiter_config()) -> ok | {error, term()}.
 update(TenantId, Config) ->
-    case find_sup_child(?MODULE, name(TenantId)) of
-        false ->
-            {error, not_found};
-        {ok, Pid} ->
-            emqx_tenancy_limiter_server:update(Pid, Config)
-    end.
+    emqx_tenancy_limiter_server:update(?PID, TenantId, Config).
 
 -spec remove(tenant_id()) -> ok.
 remove(TenantId) ->
-    Name = name(TenantId),
-    case find_sup_child(?MODULE, Name) of
-        false ->
-            ok;
-        {ok, _Pid} ->
-            _ = supervisor:terminate_child(?MODULE, Name),
-            _ = supervisor:delete_child(?MODULE, Name),
-            ok
-    end.
+    emqx_tenancy_limiter_server:remove(?PID, TenantId).
 
 -spec info(tenant_id()) -> {ok, [limiter_info()]} | {error, term()}.
 info(TenantId) ->
-    case find_sup_child(?MODULE, name(TenantId)) of
-        false -> {error, not_found};
-        {ok, Pid} -> {ok, emqx_tenancy_limiter_server:info(Pid)}
-    end.
+    emqx_tenancy_limiter_server:info(?PID, TenantId).
 
 %%--------------------------------------------------------------------
 %% callbacks
@@ -85,36 +66,18 @@ init([]) ->
         intensity => 10,
         period => 60
     },
-    {ok, {SupFlags, []}}.
-
-%%--------------------------------------------------------------------
-%% internal funcs
-
-start_child(TenantId, Config) ->
-    Spec = #{
-        id => name(TenantId),
+    Server = #{
+        id => emqx_tenancy_limiter_server,
         type => worker,
-        start => {emqx_tenancy_limiter_server, start_link, [TenantId, Config]},
+        start => {emqx_tenancy_limiter_server, start_link, []},
         restart => permanent,
         shutdown => 5000
     },
-    case supervisor:start_child(?MODULE, Spec) of
-        {ok, Pid} ->
-            {ok, Pid};
-        {ok, Pid, _Info} ->
-            {ok, Pid};
-        {error, {already_started, Pid}} when is_pid(Pid) ->
-            ok = emqx_tenancy_limiter_server:update(Pid, Config),
-            {ok, Pid};
-        {error, _} = Err ->
-            Err
-    end.
-
-find_sup_child(Sup, ChildId) ->
-    case lists:keyfind(ChildId, 1, supervisor:which_children(Sup)) of
-        false -> false;
-        {_Id, Pid, _Type, _Mods} -> {ok, Pid}
-    end.
-
-name(TenantId) ->
-    TenantId.
+    Storage = #{
+        id => emqx_tenancy_limiter_storage,
+        type => worker,
+        start => {emqx_tenancy_limiter_storage, start_link, []},
+        restart => permanent,
+        shutdown => 5000
+    },
+    {ok, {SupFlags, [Storage, Server]}}.

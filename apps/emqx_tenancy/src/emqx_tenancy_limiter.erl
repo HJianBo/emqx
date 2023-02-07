@@ -54,7 +54,7 @@ unload() ->
 on_upgarde_limiters(TenantId, Limiters) ->
     NLimiters = maps:map(
         fun(Type, Limiter) ->
-            BucketId = emqx_tenancy_limiter_server:bucket_id(TenantId, Type),
+            BucketId = emqx_tenancy_limiter_server:bucket_id(TenantId),
             emqx_htb_limiter:connect_to_extra(BucketId, Type, Limiter)
         end,
         Limiters
@@ -89,7 +89,7 @@ info(TenantId) ->
             case return_ok_or_error(NodesResult) of
                 ok ->
                     lists:foldl(
-                        fun({Node, {ok, Info}}, Acc) ->
+                        fun({Node, Info}, Acc) ->
                             Acc#{Node => Info}
                         end,
                         #{},
