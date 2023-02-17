@@ -79,6 +79,8 @@
     do_tenant_deleted/1
 ]).
 
+-export([dump_all_rules/0, import_via_raw_record/1]).
+
 -ifdef(TEST).
 -compile(export_all).
 -compile(nowarn_export_all).
@@ -243,6 +245,29 @@ do_tenant_deleted(Tenant) ->
     Ms = ets:fun2ms(fun(#emqx_acl{who = Who}) when element(2, Who) =:= Tenant -> Who end),
     All = mnesia:select(?ACL_TABLE, Ms, read),
     lists:foreach(fun(K) -> mnesia:delete(?ACL_TABLE, K, write) end, All).
+
+-spec dump_all_rules() -> list(#emqx_acl{}).
+dump_all_rules() ->
+    ets:tab2list(?ACL_TABLE).
+
+-spec import_via_raw_record(#emqx_acl{}) -> ok | {error, term()}.
+import_via_raw_record(ACL = #emqx_acl{who = Who}) ->
+    trans(
+        fun() ->
+            case mnesia:read(?ACL_TABLE, Who, write) of
+                [] ->
+                    mnesia:write(?ACL_TABLE, ACL, write);
+                [_] ->
+                    {error, already_existed}
+            end
+        end
+    ).
+
+trans(Fun) ->
+    case mria:transaction(?ACL_SHARDED, Fun) of
+        {atomic, Res} -> Res;
+        {aborted, Reason} -> {error, Reason}
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal functions
