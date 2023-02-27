@@ -28,9 +28,11 @@ start(_StartType, _StartArgs) ->
     ok = emqx_tenancy_limiter:load(),
     ok = emqx_tenancy_quota:load(),
     ok = emqx_tenancy:load_tenants(),
+    ok = emqx_tenancy_cli:load(),
     {ok, Sup}.
 
 stop(_State) ->
+    ok = emqx_tenancy_cli:unload(),
     ok = emqx_tenancy_limiter:unload(),
     ok = emqx_tenancy_quota:unload(),
     ok.

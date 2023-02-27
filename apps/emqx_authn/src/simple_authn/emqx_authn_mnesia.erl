@@ -55,6 +55,8 @@
     format_user_info/1
 ]).
 
+-export([dump_all_users/0, import_via_raw_record/1]).
+
 %% Internal exports (RPC)
 -export([
     do_destroy/1,
@@ -371,6 +373,23 @@ do_tenant_deleted(Tenant) ->
     %% XXX: performance bottleneck?
     All = mnesia:select(?TAB, Ms, read),
     lists:foreach(fun(K) -> mnesia:delete(?TAB, K, write) end, All).
+
+-spec dump_all_users() -> list(#user_info{}).
+dump_all_users() ->
+    ets:tab2list(?TAB).
+
+-spec import_via_raw_record(#user_info{}) -> ok | {error, term()}.
+import_via_raw_record(UserInfo = #user_info{user_id = Id}) ->
+    trans(
+        fun() ->
+            case mnesia:read(?TAB, Id, write) of
+                [] ->
+                    mnesia:write(?TAB, UserInfo, write);
+                [_] ->
+                    {error, already_existed}
+            end
+        end
+    ).
 
 %%--------------------------------------------------------------------
 %% QueryString to MatchSpec

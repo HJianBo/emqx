@@ -60,20 +60,21 @@ load_tenants([#tenant{id = Id, configs = Quota} | More]) ->
     load_tenants(More).
 
 -spec create(map()) -> {ok, map()} | {error, any()}.
-create(Tenant) ->
+create(Tenant) when is_map(Tenant) ->
     Now = now_second(),
     Tenant1 = to_tenant(Tenant),
-    Tenant2 = Tenant1#tenant{created_at = Now, updated_at = Now},
+    create(Tenant1#tenant{created_at = Now, updated_at = Now});
+create(Tenant) when is_record(Tenant, tenant) ->
     case
         emqx_tenancy_limiter:create(
-            Tenant2#tenant.id,
-            with_limiter_configs(Tenant2#tenant.configs)
+            Tenant#tenant.id,
+            with_limiter_configs(Tenant#tenant.configs)
         )
     of
         ok ->
-            QuotaConfig = with_quota_config(Tenant2#tenant.configs),
-            ok = emqx_tenancy_quota:create(Tenant2#tenant.id, QuotaConfig),
-            trans(fun ?MODULE:do_create/1, [Tenant2]);
+            QuotaConfig = with_quota_config(Tenant#tenant.configs),
+            ok = emqx_tenancy_quota:create(Tenant#tenant.id, QuotaConfig),
+            trans(fun ?MODULE:do_create/1, [Tenant]);
         {error, Reason} ->
             {error, Reason}
     end.
