@@ -53,6 +53,8 @@
     rules :: rules()
 }).
 
+-type acl_record() :: #emqx_acl{}.
+
 -behaviour(emqx_authz).
 
 %% AuthZ Callbacks
@@ -246,11 +248,11 @@ do_tenant_deleted(Tenant) ->
     All = mnesia:select(?ACL_TABLE, Ms, read),
     lists:foreach(fun(K) -> mnesia:delete(?ACL_TABLE, K, write) end, All).
 
--spec dump_all_rules() -> list(#emqx_acl{}).
+-spec dump_all_rules() -> list(acl_record()).
 dump_all_rules() ->
     ets:tab2list(?ACL_TABLE).
 
--spec import_via_raw_record(#emqx_acl{}) -> ok | {error, term()}.
+-spec import_via_raw_record(acl_record()) -> ok | {error, term()}.
 import_via_raw_record(ACL = #emqx_acl{who = Who}) ->
     trans(
         fun() ->
