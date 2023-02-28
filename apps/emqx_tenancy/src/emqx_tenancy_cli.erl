@@ -70,7 +70,7 @@ export(all, Path) ->
                 },
                 file:write(Fd, term_to_binary(Term)),
                 emqx_ctl:print(
-                    "Exported ~w tenants, ~w authn users, ~w authz rules.~n",
+                    "Exported ~w tenants, ~w authn records, ~w authz records.~n",
                     [length(Tenants), length(AuthnUsers), length(AuthzRules)]
                 )
             catch
@@ -118,7 +118,7 @@ restore_tenants("1.1.0", Rows) ->
             {0, 0, 0},
             Rows
         ),
-    emqx_ctl:print("  succeed: ~5w, existed: ~5w, failed: ~5w~n", [Succ, Existed, Failed]).
+    emqx_ctl:print("  succeed: ~w, existed: ~w, failed: ~w~n", [Succ, Existed, Failed]).
 
 dump_authn_users() ->
     emqx_authn_mnesia:dump_all_users().
@@ -140,7 +140,7 @@ restore_authn_users("1.1.0", Rows) ->
             {0, 0, 0},
             Rows
         ),
-    emqx_ctl:print("  succeed: ~5w, existed: ~5w, failed: ~5w~n", [Succ, Existed, Failed]).
+    emqx_ctl:print("  succeed: ~w, existed: ~w, failed: ~w~n", [Succ, Existed, Failed]).
 
 dump_authz_rules() ->
     emqx_authz_mnesia:dump_all_rules().
@@ -162,7 +162,7 @@ restore_authz_rules("1.1.0", Rows) ->
             {0, 0, 0},
             Rows
         ),
-    emqx_ctl:print("  succeed: ~5w, existed: ~5w, failed: ~5w~n", [Succ, Existed, Failed]).
+    emqx_ctl:print("  succeed: ~w, existed: ~w, failed: ~w~n", [Succ, Existed, Failed]).
 
 path() ->
     Path = filename:join([emqx:data_dir(), "exports"]),
