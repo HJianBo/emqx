@@ -441,6 +441,10 @@ update_counter(TenantId, sessions, N) ->
 update_counter(TenantId, Resource, N) ->
     mria:dirty_update_counter(?COUNTER, {TenantId, Resource}, N).
 
+setup_counter(TenantId, Resource, N) when Resource =/= sessions ->
+    Rec = {?COUNTER, {TenantId, Resource}, N},
+    mria:dirty_write(?COUNTER, Rec).
+
 lookup_counter(TenantId, Resource) ->
     try
         unsafe_lookup_counter(TenantId, Resource)
@@ -455,12 +459,14 @@ init_counter(TenantId) ->
     mria:dirty_update_counter(?COUNTER, {TenantId, sessions}, 0),
     mria:dirty_update_counter(?COUNTER, {TenantId, authn_users}, 0),
     mria:dirty_update_counter(?COUNTER, {TenantId, authz_rules}, 0),
+    mria:dirty_update_counter(?COUNTER, {TenantId, retained_msgs}, 0),
     ok.
 
 clear_counter(TenantId) ->
     ok = mnesia:dirty_delete(?COUNTER, {TenantId, sessions}),
     ok = mnesia:dirty_delete(?COUNTER, {TenantId, authn_users}),
-    ok = mnesia:dirty_delete(?COUNTER, {TenantId, authz_rules}).
+    ok = mnesia:dirty_delete(?COUNTER, {TenantId, authz_rules}),
+    ok = mnesia:dirty_delete(?COUNTER, {TenantId, retained_msgs}).
 
 %%--------------------------------------------------------------------
 %% load
@@ -474,9 +480,11 @@ load_tenants_used() ->
         fun(#tenant{id = Id, configs = Configs}, Acc) ->
             Usage = init_usage(emqx_tenancy:with_quota_config(Configs)),
             update_counter(Id, sessions, 0),
-            update_counter(Id, authn_users, maps:get(Id, AuthNUsed, 0)),
-            update_counter(Id, authz_rules, maps:get(Id, AuthZUsed, 0)),
-            update_counter(Id, retained_msgs, maps:get(Id, Retained, 0)),
+            %% the following tables are synced in cluster
+            %% so, just set the value to counter
+            setup_counter(Id, authn_users, maps:get(Id, AuthNUsed, 0)),
+            setup_counter(Id, authz_rules, maps:get(Id, AuthZUsed, 0)),
+            setup_counter(Id, retained_msgs, maps:get(Id, Retained, 0)),
             Acc#{Id => {Usage, NowTs}}
         end,
         #{},
@@ -510,8 +518,18 @@ scan_authz_rules_table() ->
     ).
 
 scan_retained_msgs_table() ->
-    %% FIXME:
-    #{}.
+    ets:foldl(
+        fun(Msg, Acc) ->
+            case Msg of
+                {retained_message, _Topic, #message{from = {Tenant, _}}, _ExpireAt} ->
+                    maps:update_with(Tenant, fun(V) -> V + 1 end, 1, Acc);
+                _ ->
+                    Acc
+            end
+        end,
+        #{},
+        emqx_retainer_message
+    ).
 
 %%--------------------------------------------------------------------
 %% submit
