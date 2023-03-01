@@ -20,7 +20,7 @@
 
 -export([load/0, unload/0]).
 
--export(['tenants-data'/1]).
+-export(['tenant-data'/1, 'tenant-quota'/1]).
 
 %%--------------------------------------------------------------------
 %% load
@@ -40,14 +40,26 @@ is_cmd(Fun) ->
 %%--------------------------------------------------------------------
 %% commands
 
-'tenants-data'(["export", "all"]) ->
+'tenant-data'(["export", "all"]) ->
     export(all, path());
-'tenants-data'(["import", File]) ->
+'tenant-data'(["import", File]) ->
     import(File);
-'tenants-data'(_) ->
+'tenant-data'(_) ->
     emqx_ctl:usage([
-        {"tenants-data export all", "Export all tenants data"},
-        {"tenants-data import <File>", "Import tenants data"}
+        {"tenant-data export all", "Export all tenant data"},
+        {"tenant-data import <File>", "Import tenant data"}
+    ]).
+
+'tenant-quota'(["info", Id]) ->
+    case emqx_tenancy_quota:info(list_to_binary(Id)) of
+        {ok, Info} ->
+            emqx_ctl:print("~p~n", [Info]);
+        {error, not_found} ->
+            emqx_ctl:print("Not Found~n")
+    end;
+'tenant-quota'(_) ->
+    emqx_ctl:usage([
+        {"tenant-quota info <Id>", "Inspect quota/usage information for given tenant Id"}
     ]).
 
 %%--------------------------------------------------------------------
