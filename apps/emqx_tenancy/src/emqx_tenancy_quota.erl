@@ -59,7 +59,8 @@
 -export([
     on_quota_sessions/3,
     on_quota_authn_users/3,
-    on_quota_authz_rules/3
+    on_quota_authz_rules/3,
+    on_quota_retained_msgs/3
 ]).
 -export([acquire/3, release/3]).
 
@@ -86,6 +87,7 @@
     sessions := usage_counter(),
     authn_users := usage_counter(),
     authz_rules := usage_counter(),
+    retained_msgs := usage_counter(),
     atom() => usage_counter()
 }.
 
@@ -93,10 +95,10 @@
     sessions := usage_counter(),
     authn_users := usage_counter(),
     authz_rules := usage_counter(),
+    retained_msgs := usage_counter(),
     atom() => usage_counter()
     %% XXX: 2.0
     %%subs := usage_counter(),
-    %%retained := usage_counter(),
     %%rules := usage_counter(),
     %%resources := usage_counter(),
     %%shared_subs := usage_counter()
@@ -148,7 +150,8 @@ stop() ->
 load() ->
     emqx_hooks:put('quota.sessions', {?MODULE, on_quota_sessions, []}, 0),
     emqx_hooks:put('quota.authn_users', {?MODULE, on_quota_authn_users, []}, 0),
-    emqx_hooks:put('quota.authz_rules', {?MODULE, on_quota_authz_rules, []}, 0).
+    emqx_hooks:put('quota.authz_rules', {?MODULE, on_quota_authz_rules, []}, 0),
+    emqx_hooks:put('quota.retained_msgs', {?MODULE, on_quota_retained_msgs, []}, 0).
 
 %% @doc Unload tenant limiter
 %% It's only works for new sessions
@@ -156,7 +159,8 @@ load() ->
 unload() ->
     emqx_hooks:del('quota.sessions', {?MODULE, on_quota_sessions}),
     emqx_hooks:del('quota.authn_users', {?MODULE, on_quota_authn_users}),
-    emqx_hooks:del('quota.authz_rules', {?MODULE, on_quota_authz_rules}).
+    emqx_hooks:del('quota.authz_rules', {?MODULE, on_quota_authz_rules}),
+    emqx_hooks:del('quota.retained_msgs', {?MODULE, on_quota_retained_msgs, []}).
 
 %%--------------------------------------------------------------------
 %% Management APIs (cluster-level)
@@ -312,6 +316,12 @@ on_quota_authz_rules(_Action, ?NO_TENANT, _LastPermision) ->
 on_quota_authz_rules(Action, TenantId, _LastPermision) ->
     exec_quota_action(Action, [TenantId, authz_rules]).
 
+-spec on_quota_retained_msgs(quota_action(), tenant_id(), term()) -> permision().
+on_quota_retained_msgs(_Action, ?NO_TENANT, _LastPermision) ->
+    {stop, allow};
+on_quota_retained_msgs(Action, TenantId, _LastPermision) ->
+    exec_quota_action(Action, [TenantId, retained_msgs]).
+
 exec_quota_action(Action, Args) when Action == acquire; Action == release ->
     erlang:apply(?MODULE, Action, [1 | Args]);
 exec_quota_action({Action, N}, Args) when Action == acquire; Action == release ->
@@ -458,6 +468,7 @@ clear_counter(TenantId) ->
 load_tenants_used() ->
     AuthNUsed = scan_authn_users_table(),
     AuthZUsed = scan_authz_rules_table(),
+    Retained = scan_retained_msgs_table(),
     NowTs = now_ts(),
     lists:foldl(
         fun(#tenant{id = Id, configs = Configs}, Acc) ->
@@ -465,6 +476,7 @@ load_tenants_used() ->
             update_counter(Id, sessions, 0),
             update_counter(Id, authn_users, maps:get(Id, AuthNUsed, 0)),
             update_counter(Id, authz_rules, maps:get(Id, AuthZUsed, 0)),
+            update_counter(Id, retained_msgs, maps:get(Id, Retained, 0)),
             Acc#{Id => {Usage, NowTs}}
         end,
         #{},
@@ -496,6 +508,10 @@ scan_authz_rules_table() ->
         #{},
         emqx_acl
     ).
+
+scan_retained_msgs_table() ->
+    %% FIXME:
+    #{}.
 
 %%--------------------------------------------------------------------
 %% submit
@@ -590,7 +606,7 @@ max_abs_diff(Usage) ->
                 Max
         end
     end,
-    lists:foldl(Fun, 0, [sessions, authn_users, authz_rules]).
+    lists:foldl(Fun, 0, [sessions, authn_users, authz_rules, retained_msgs]).
 
 do_submit(TenantId, Usage) ->
     maps:map(
@@ -666,15 +682,16 @@ do_release(N, TenantId, Resource, Buffer) ->
 %%--------------------------------------------------------------------
 %% helpers
 
-init_usage(#{
-    max_sessions := MaxSess,
-    max_authn_users := MaxAuthn,
-    max_authz_rules := MaxAuthz
-}) ->
+init_usage(Config) ->
+    MaxSess = maps:get(max_sessions, Config, ?MAX_SESSION),
+    MaxAuthn = maps:get(max_authn_users, Config, ?MAX_AUTHN_USERS),
+    MaxAuthz = maps:get(max_authz_rules, Config, ?MAX_AUTHZ_RULES),
+    MaxRetained = maps:get(max_retained_msgs, Config, ?MAX_RETAINED_MSGS),
     #{
         sessions => #{max => MaxSess, used => 0},
         authn_users => #{max => MaxAuthn, used => 0},
-        authz_rules => #{max => MaxAuthz, used => 0}
+        authz_rules => #{max => MaxAuthz, used => 0},
+        retained_msgs => #{max => MaxRetained, used => 0}
     }.
 
 apply_counter_to_usage(
@@ -682,13 +699,17 @@ apply_counter_to_usage(
     #{
         sessions := #{max := MaxSess, used := Sess},
         authn_users := #{max := MaxAuthn, used := Authn},
-        authz_rules := #{max := MaxAuthz, used := Authz}
+        authz_rules := #{max := MaxAuthz, used := Authz},
+        retained_msgs := #{max := MaxRetained, used := Retained}
     }
 ) ->
     #{
         sessions => #{max => MaxSess, used => Sess + lookup_counter(TenantId, sessions)},
         authn_users => #{max => MaxAuthn, used => Authn + lookup_counter(TenantId, authn_users)},
-        authz_rules => #{max => MaxAuthz, used => Authz + lookup_counter(TenantId, authz_rules)}
+        authz_rules => #{max => MaxAuthz, used => Authz + lookup_counter(TenantId, authz_rules)},
+        retained_msgs => #{
+            max => MaxRetained, used => Retained + lookup_counter(TenantId, retained_msgs)
+        }
     }.
 
 incr(Resource, N, Usage) ->

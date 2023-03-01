@@ -138,7 +138,8 @@ create_table(Table, RecordName, Attributes, Type, StorageType) ->
 store_retained(_, Msg = #message{topic = Topic}) ->
     ExpiryTime = emqx_retainer:get_expiry_time(Msg),
     Tokens = topic_to_tokens(Topic),
-    case is_table_full() andalso is_new_topic(Tokens) of
+    IsNewTopic = is_new_topic(Tokens),
+    case is_table_full() andalso IsNewTopic of
         true ->
             ?SLOG(error, #{
                 msg => "failed_to_retain_message",
@@ -146,7 +147,21 @@ store_retained(_, Msg = #message{topic = Topic}) ->
                 reason => table_is_full
             });
         false ->
-            do_store_retained(Msg, Tokens, ExpiryTime)
+            case IsNewTopic of
+                false ->
+                    do_store_retained(Msg, Tokens, ExpiryTime);
+                true ->
+                    TenantId = emqx_clientid:tenant_id(Msg#message.from),
+                    case emqx_hooks:run_fold('quota.retained_msgs', [acquire, TenantId], allow) of
+                        allow ->
+                            do_store_retained(Msg, Tokens, ExpiryTime);
+                        deny ->
+                            ?SLOG(warning, #{
+                                msg => "retain_failed_for_quota_exceeded",
+                                topic => Topic
+                            })
+                    end
+            end
     end.
 
 clear_expired(_) ->
@@ -163,19 +178,44 @@ clear_expired(_) ->
 
 delete_message(_, Topic) ->
     Tokens = topic_to_tokens(Topic),
-    case emqx_topic:wildcard(Topic) of
-        false ->
-            ok = delete_message_by_topic(Tokens, dirty_indices(write));
-        true ->
-            QH = search_table(Tokens, 0),
-            qlc:fold(
-                fun(RetainedMsg, _) ->
-                    ok = delete_message_with_indices(RetainedMsg, dirty_indices(write))
-                end,
-                undefined,
-                QH
-            )
-    end.
+    AffectedTokens =
+        case emqx_topic:wildcard(Topic) of
+            false ->
+                ok = delete_message_by_topic(Tokens, dirty_indices(write)),
+                Tokens;
+            true ->
+                QH = search_table(Tokens, 0),
+                qlc:fold(
+                    fun(#retained_message{topic = T} = RetainedMsg, Acc) ->
+                        ok = delete_message_with_indices(RetainedMsg, dirty_indices(write)),
+                        [T | Acc]
+                    end,
+                    [],
+                    QH
+                )
+        end,
+    maybe_release_tenant_quota(AffectedTokens).
+
+maybe_release_tenant_quota([]) ->
+    ok;
+maybe_release_tenant_quota(AffectedTokens) ->
+    Map = lists:foldl(
+        fun
+            ([<<"$tenants">>, TenantId | _], Acc) ->
+                N = maps:get(TenantId, Acc, 0),
+                Acc#{TenantId => N + 1};
+            (_, Acc) ->
+                Acc
+        end,
+        #{},
+        AffectedTokens
+    ),
+    maps:foreach(
+        fun(TenantId, Num) ->
+            _ = emqx_hooks:run_fold('quota.retained_msgs', [{release, Num}, TenantId], allow)
+        end,
+        Map
+    ).
 
 read_message(_, Topic) ->
     {ok, read_messages(Topic)}.
@@ -235,9 +275,8 @@ page_read(_, Topic, Page, Limit) ->
         end,
     {ok, PageRows}.
 
-clean(_) ->
-    _ = mria:clear_table(?TAB_MESSAGE),
-    _ = mria:clear_table(?TAB_INDEX),
+clean(_Ctx) ->
+    delete_message(_Ctx, <<"#">>),
     ok.
 
 size(_) ->

@@ -35,9 +35,9 @@
     #{
         max_sessions := pos_integer(),
         max_authn_users := pos_integer(),
-        max_authz_rules := pos_integer()
+        max_authz_rules := pos_integer(),
+        max_retained_msgs := pos_integer()
         %max_subscriptions := pos_integer(),
-        %max_retained_messages := pos_integer(),
         %max_rules := pos_integer(),
         %max_resources := pos_integer(),
         %max_shared_subscriptions := pos_integer()
@@ -90,6 +90,12 @@
 }).
 
 -define(TENANCY, emqx_tenancy).
+
+%% default values
+-define(MAX_SESSION, 1000).
+-define(MAX_AUTHN_USERS, 2000).
+-define(MAX_AUTHZ_RULES, 2000).
+-define(MAX_RETAINED_MSGS, 1000).
 
 %% type references
 

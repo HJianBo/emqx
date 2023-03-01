@@ -205,14 +205,17 @@ fields(limiters_example) ->
 
 fields(quotas, ExampleOrDefault) ->
     [
-        {max_sessions, ?HOCON(integer(), #{desc => <<"Max sessions">>, ExampleOrDefault => 1000})},
+        {max_sessions,
+            ?HOCON(integer(), #{desc => <<"Max sessions">>, ExampleOrDefault => ?MAX_SESSION})},
         {max_authn_users,
-            ?HOCON(integer(), #{desc => <<"Max authn users">>, ExampleOrDefault => 2000})},
+            ?HOCON(integer(), #{desc => <<"Max authn users">>, ExampleOrDefault => ?MAX_AUTHN_USERS})},
         {max_authz_rules,
-            ?HOCON(integer(), #{desc => <<"Max authz users">>, ExampleOrDefault => 2000})}
+            ?HOCON(integer(), #{desc => <<"Max authz users">>, ExampleOrDefault => ?MAX_AUTHZ_RULES})},
+        {max_retained_msgs,
+            ?HOCON(integer(), #{
+                desc => <<"Max retained messages">>, ExampleOrDefault => ?MAX_RETAINED_MSGS
+            })}
         %% TODO: 2.0
-        %{max_retained_messages,
-        %    ?HOCON(integer(), #{desc => <<"Max retained messages">>, default => 1000})},
         %{max_rules, ?HOCON(integer(), #{desc => <<"Max rules">>, default => 1000})},
         %{max_resources, ?HOCON(integer(), #{desc => <<"Max resources">>, default => 50})},
         %{max_subscriptions,
