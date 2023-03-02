@@ -19,6 +19,7 @@
 -behaviour(minirest_api).
 
 -include("emqx_retainer.hrl").
+-include_lib("emqx/include/emqx.hrl").
 -include_lib("hocon/include/hoconsc.hrl").
 
 %% API
@@ -111,7 +112,8 @@ schema(?PREFIX ++ "/message/:topic") ->
     }.
 
 page_params() ->
-    emqx_dashboard_swagger:fields(page) ++ emqx_dashboard_swagger:fields(limit).
+    [hoconsc:ref(emqx_dashboard_swagger, tenant_id)] ++
+        emqx_dashboard_swagger:fields(page) ++ emqx_dashboard_swagger:fields(limit).
 
 conf_schema() ->
     ref(emqx_retainer_schema, "retainer").
@@ -123,7 +125,8 @@ parameters() ->
                 in => path,
                 required => true,
                 desc => ?DESC(topic)
-            })}
+            })},
+        hoconsc:ref(emqx_dashboard_swagger, tenant_id)
     ].
 
 fields(message_summary) ->
@@ -164,33 +167,54 @@ config(put, #{body := Body}) ->
 %%------------------------------------------------------------------------------
 %% Interval Funcs
 %%------------------------------------------------------------------------------
-lookup_retained(get, #{query_string := Qs}) ->
+
+lookup_retained(get, Params = #{query_string := Qs}) ->
     Page = maps:get(<<"page">>, Qs, 1),
     Limit = maps:get(<<"limit">>, Qs, emqx_mgmt:max_row_limit()),
-    {ok, Msgs} = emqx_retainer_mnesia:page_read(undefined, undefined, Page, Limit),
+    TopicPrefix = extract_topic_prefix(Params),
+    TopicQuery =
+        case TopicPrefix of
+            undefined -> undefined;
+            _ -> <<TopicPrefix/binary, "#">>
+        end,
+    {ok, Msgs} = emqx_retainer_mnesia:page_read(undefined, TopicQuery, Page, Limit),
     {200, #{
-        data => [format_message(Msg) || Msg <- Msgs],
+        data => [format_message(TopicPrefix, Msg) || Msg <- Msgs],
         meta => #{page => Page, limit => Limit, count => emqx_retainer_mnesia:size(?TAB_MESSAGE)}
     }}.
 
-with_topic(get, #{bindings := Bindings}) ->
-    Topic = maps:get(topic, Bindings),
+with_topic(get, Params = #{bindings := Bindings}) ->
+    Prefix = extract_topic_prefix(Params, <<>>),
+    Topic0 = maps:get(topic, Bindings),
+    Topic = <<Prefix/binary, Topic0/binary>>,
     {ok, Msgs} = emqx_retainer_mnesia:page_read(undefined, Topic, 1, 1),
     case Msgs of
         [H | _] ->
-            {200, format_detail_message(H)};
+            {200, format_detail_message(Prefix, H)};
         _ ->
             {404, #{
                 code => <<"NOT_FOUND">>,
                 message => <<"Viewed message doesn't exist">>
             }}
     end;
-with_topic(delete, #{bindings := Bindings}) ->
-    Topic = maps:get(topic, Bindings),
+with_topic(delete, Params = #{bindings := Bindings}) ->
+    Prefix = extract_topic_prefix(Params, <<>>),
+    Topic0 = maps:get(topic, Bindings),
+    Topic = <<Prefix/binary, Topic0/binary>>,
     emqx_retainer_mnesia:delete_message(undefined, Topic),
     {204}.
 
-format_message(#message{
+extract_topic_prefix(Params) ->
+    extract_topic_prefix(Params, undefined).
+extract_topic_prefix(Params, Default) ->
+    case emqx_dashboard_utils:tenant(Params) of
+        ?NO_TENANT ->
+            Default;
+        Id ->
+            emqx_mountpoint:replvar(?TENANT_TOPIC_PREFIX, #{tenant_id => Id})
+    end.
+
+format_message(Prefix, #message{
     id = ID,
     qos = Qos,
     topic = Topic,
@@ -201,7 +225,7 @@ format_message(#message{
     #{
         msgid => emqx_guid:to_hexstr(ID),
         qos => Qos,
-        topic => Topic,
+        topic => emqx_mountpoint:unmount(Prefix, Topic),
         publish_at => list_to_binary(
             calendar:system_time_to_rfc3339(
                 Timestamp, [{unit, millisecond}]
@@ -211,8 +235,8 @@ format_message(#message{
         from_username => maps:get(username, Headers, <<>>)
     }.
 
-format_detail_message(#message{payload = Payload} = Msg) ->
-    Base = format_message(Msg),
+format_detail_message(Prefix, #message{payload = Payload} = Msg) ->
+    Base = format_message(Prefix, Msg),
     case erlang:byte_size(Payload) =< ?MAX_PAYLOAD_SIZE of
         true ->
             Base#{payload => base64:encode(Payload)};
