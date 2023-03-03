@@ -275,8 +275,8 @@ page_read(_, Topic, Page, Limit) ->
         end,
     {ok, PageRows}.
 
-clean(_Ctx) ->
-    delete_message(_Ctx, <<"#">>),
+clean(Ctx) ->
+    delete_message(Ctx, <<"#">>),
     ok.
 
 size(_) ->
