@@ -65,7 +65,12 @@ prop_load_unload() ->
 
             {ok, _Pid} = emqx_tenancy_quota:start_link(#{}),
             TenantId = <<"tenant_foo">>,
-            QuotaCfg = #{max_sessions => 0, max_authn_users => 0, max_authz_rules => 0},
+            QuotaCfg = #{
+                max_sessions => 0,
+                max_authn_users => 0,
+                max_authz_rules => 0,
+                max_retained_msgs => 0
+            },
             ok = emqx_tenancy_quota:create(TenantId, QuotaCfg),
             ?assertEqual(
                 allow,
@@ -95,6 +100,16 @@ prop_load_unload() ->
                 deny,
                 emqx_hooks:run_fold('quota.authz_rules', [acquire, TenantId], allow)
             ),
+
+            ?assertEqual(
+                allow,
+                emqx_hooks:run_fold('quota.retained_msgs', [acquire, ?NO_TENANT], allow)
+            ),
+            ?assertEqual(
+                deny,
+                emqx_hooks:run_fold('quota.retained_msgs', [acquire, TenantId], allow)
+            ),
+
             ok = emqx_tenancy_quota:stop(),
             mnesia:clear_table(emqx_tenancy_quota_counter),
             ok = emqx_tenancy_quota:unload(),
@@ -104,6 +119,27 @@ prop_load_unload() ->
 
 %%--------------------------------------------------------------------
 %% setup & teardown
+
+-define(BASE_CONF, <<
+    ""
+    "\n"
+    "retainer {\n"
+    "    enable = true\n"
+    "    msg_clear_interval = 0s\n"
+    "    msg_expiry_interval = 0s\n"
+    "    max_payload_size = 1MB\n"
+    "    flow_control {\n"
+    "        batch_read_number = 0\n"
+    "        batch_deliver_number = 0\n"
+    "     }\n"
+    "   backend {\n"
+    "        type = built_in_database\n"
+    "        storage_type = ram\n"
+    "        max_retained_messages = 0\n"
+    "     }\n"
+    "}"
+    ""
+>>).
 
 do_setup() ->
     net_kernel:start([?NODENAME, longnames]),
@@ -125,13 +161,15 @@ do_setup() ->
         lookup_channels,
         fun(_) -> [] end
     ),
+    ok = emqx_config:init_load(emqx_retainer_schema, ?BASE_CONF),
     emqx_common_test_helpers:boot_modules(all),
-    emqx_common_test_helpers:start_apps([]),
+    emqx_common_test_helpers:start_apps([emqx_retainer]),
     ok.
 
 do_teardown(_) ->
-    emqx_common_test_helpers:stop_apps([]),
+    emqx_common_test_helpers:stop_apps([emqx_retainer]),
     _ = meck:unload(),
+    ok = emqx_config:delete_override_conf_files(),
     ok.
 
 %%--------------------------------------------------------------------
@@ -153,6 +191,8 @@ command(_State) ->
         {call, emqx_tenancy_quota, on_quota_sessions, [quota_action_name(), clientinfo(), allow]},
         {call, emqx_tenancy_quota, on_quota_authn_users, [quota_action(), tenant_id(), allow]},
         {call, emqx_tenancy_quota, on_quota_authz_rules, [quota_action(), tenant_id(), allow]},
+        {call, emqx_tenancy_quota, on_quota_retained_msgs, [quota_action(), tenant_id(), allow]},
+
         %% misc
         {call, emqx_tenancy_quota, load, []},
         {call, emqx_tenancy_quota, unload, []}
@@ -176,13 +216,15 @@ postcondition(_State, {call, _Mod, CreateOrUpdate, [Id, Conf]}, Res) when
     #{
         max_sessions := MaxSess,
         max_authn_users := MaxUsers,
-        max_authz_rules := MaxRules
+        max_authz_rules := MaxRules,
+        max_retained_msgs := MaxRetained
     } = Conf,
     ?assertMatch(
         {ok, #{
             sessions := #{max := MaxSess},
             authn_users := #{max := MaxUsers},
-            authz_rules := #{max := MaxRules}
+            authz_rules := #{max := MaxRules},
+            retained_msgs := #{max := MaxRetained}
         }},
         emqx_tenancy_quota:do_info(Id)
     ),
@@ -204,7 +246,8 @@ postcondition(State, {call, _Mod, info, [Id]}, Res) ->
             {ok, Return} = Res,
             ?assertEqual(maps:get(sessions, Usage), maps:get(sessions, Return)),
             ?assertEqual(maps:get(authn_users, Usage), maps:get(authn_users, Return)),
-            ?assertEqual(maps:get(authz_rules, Usage), maps:get(authz_rules, Return))
+            ?assertEqual(maps:get(authz_rules, Usage), maps:get(authz_rules, Return)),
+            ?assertEqual(maps:get(retained_msgs, Usage), maps:get(retained_msgs, Return))
     end,
     true;
 postcondition(State, {call, _Mod, on_quota_sessions, [Action, #{tenant_id := Id}, _]}, Res) ->
@@ -220,6 +263,11 @@ postcondition(State, {call, _Mod, on_quota_authn_users, [Action, Id, _]}, Res) -
 postcondition(State, {call, _Mod, on_quota_authz_users, [Action, Id, _]}, Res) ->
     %% assert
     {Wanted, _State} = apply_quota_action(Action, Id, authz_rules, State),
+    ?assertMatch(Wanted, Res),
+    true;
+postcondition(State, {call, _Mod, on_quota_retained_msgs, [Action, Id, _]}, Res) ->
+    %% assert
+    {Wanted, _State} = apply_quota_action(Action, Id, retained_msgs, State),
     ?assertMatch(Wanted, Res),
     true;
 postcondition(_State, {call, _Mod, _Fun, _Args}, _Res) ->
@@ -245,6 +293,9 @@ next_state(State, _Res, {call, _Mod, on_quota_authn_users, [Action, Id, _]}) ->
     NState;
 next_state(State, _Res, {call, _Mod, on_quota_authz_rules, [Action, Id, _]}) ->
     {_, NState} = apply_quota_action(Action, Id, authz_rules, State),
+    NState;
+next_state(State, _Res, {call, _Mod, on_quota_retained_msgs, [Action, Id, _]}) ->
+    {_, NState} = apply_quota_action(Action, Id, retained_msgs, State),
     NState;
 next_state(State, _Res, {call, _Mod, _Fun, _Args}) ->
     State.
@@ -287,16 +338,23 @@ counting(Used, N) ->
     end.
 
 config_to_usage(
-    #{max_sessions := MaxSess, max_authn_users := MaxAuthn, max_authz_rules := MaxAuthz},
+    #{
+        max_sessions := MaxSess,
+        max_authn_users := MaxAuthn,
+        max_authz_rules := MaxAuthz,
+        max_retained_msgs := MaxRetained
+    },
     Old
 ) ->
     UsedSess = emqx_map_lib:deep_get([sessions, used], Old, 0),
     UsedAuthn = emqx_map_lib:deep_get([authn_users, used], Old, 0),
     UsedAuthz = emqx_map_lib:deep_get([authz_rules, used], Old, 0),
+    UsedRetained = emqx_map_lib:deep_get([retained_msgs, used], Old, 0),
     #{
         sessions => #{max => MaxSess, used => UsedSess},
         authn_users => #{max => MaxAuthn, used => UsedAuthn},
-        authz_rules => #{max => MaxAuthz, used => UsedAuthz}
+        authz_rules => #{max => MaxAuthz, used => UsedAuthz},
+        retained_msgs => #{max => MaxRetained, used => UsedRetained}
     }.
 
 %%--------------------------------------------------------------------
@@ -315,10 +373,10 @@ rand_tenant_id() ->
 
 quota_config() ->
     ?LET(
-        {A, B, C},
-        {pos_integer(), pos_integer(), pos_integer()},
+        {A, B, C, D},
+        {pos_integer(), pos_integer(), pos_integer(), pos_integer()},
         begin
-            #{max_sessions => A, max_authn_users => B, max_authz_rules => C}
+            #{max_sessions => A, max_authn_users => B, max_authz_rules => C, max_retained_msgs => D}
         end
     ).
 

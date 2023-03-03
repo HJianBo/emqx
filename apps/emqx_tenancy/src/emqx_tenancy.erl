@@ -199,9 +199,10 @@ to_tenant(Tenant) ->
 default_configs() ->
     #{
         <<"quotas">> => #{
-            <<"max_sessions">> => 1000,
-            <<"max_authn_users">> => 2000,
-            <<"max_authz_rules">> => 2000
+            <<"max_sessions">> => ?MAX_SESSION,
+            <<"max_authn_users">> => ?MAX_AUTHN_USERS,
+            <<"max_authz_rules">> => ?MAX_AUTHZ_RULES,
+            <<"max_retained_msgs">> => ?MAX_RETAINED_MSGS
         },
         <<"limiters">> => #{
             <<"max_messages_in">> => 1000,
