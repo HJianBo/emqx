@@ -177,17 +177,17 @@ lookup_retained(get, Params = #{query_string := Qs}) ->
             undefined -> undefined;
             _ -> <<TopicPrefix/binary, "#">>
         end,
-    {ok, Msgs} = emqx_retainer_mnesia:page_read(undefined, TopicQuery, Page, Limit),
+    {ok, Msgs, Total} = emqx_retainer_mnesia:page_read(undefined, TopicQuery, Page, Limit),
     {200, #{
         data => [format_message(TopicPrefix, Msg) || Msg <- Msgs],
-        meta => #{page => Page, limit => Limit, count => emqx_retainer_mnesia:size(?TAB_MESSAGE)}
+        meta => #{page => Page, limit => Limit, count => Total}
     }}.
 
 with_topic(get, Params = #{bindings := Bindings}) ->
     Prefix = extract_topic_prefix(Params, <<>>),
     Topic0 = maps:get(topic, Bindings),
     Topic = <<Prefix/binary, Topic0/binary>>,
-    {ok, Msgs} = emqx_retainer_mnesia:page_read(undefined, Topic, 1, 1),
+    {ok, Msgs, _Total} = emqx_retainer_mnesia:page_read(undefined, Topic, 1, 1),
     case Msgs of
         [H | _] ->
             {200, format_detail_message(Prefix, H)};

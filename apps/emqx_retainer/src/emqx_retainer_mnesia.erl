@@ -273,7 +273,10 @@ page_read(_, Topic, Page, Limit) ->
                         Rows
                 end
         end,
-    {ok, PageRows}.
+
+    Total = qlc:fold(fun(_, Acc) -> Acc + 1 end, 0, counting_only(QH)),
+
+    {ok, PageRows, Total}.
 
 clean(Ctx) ->
     delete_message(Ctx, <<"#">>),
@@ -337,6 +340,9 @@ msg_table(SearchTable) ->
             msg = Msg
         } <- SearchTable
     ]).
+
+counting_only(QH) ->
+    qlc:q([ok || _ <- QH]).
 
 search_table(Tokens, Now) ->
     Indices = dirty_indices(read),

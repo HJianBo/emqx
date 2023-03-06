@@ -76,7 +76,7 @@
 -callback store_retained(context(), message()) -> ok.
 -callback read_message(context(), topic()) -> {ok, list()}.
 -callback page_read(context(), topic(), non_neg_integer(), non_neg_integer()) ->
-    {ok, list()}.
+    {ok, list(), non_neg_integer()}.
 -callback match_messages(context(), topic(), cursor()) -> {ok, list(), cursor()}.
 -callback clear_expired(context()) -> ok.
 -callback clean(context()) -> ok.
