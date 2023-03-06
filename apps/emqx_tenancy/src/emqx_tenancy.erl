@@ -222,7 +222,8 @@ with_quota_config(Config0) when is_map(Config0) ->
     Keys = [
         <<"max_sessions">>,
         <<"max_authn_users">>,
-        <<"max_authz_rules">>
+        <<"max_authz_rules">>,
+        <<"max_retained_msgs">>
     ],
     Config = maps:get(<<"quotas">>, Config0),
     emqx_map_lib:safe_atom_key_map(maps:with(Keys, Config)).
