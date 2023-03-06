@@ -182,7 +182,7 @@ delete_message(_, Topic) ->
         case emqx_topic:wildcard(Topic) of
             false ->
                 ok = delete_message_by_topic(Tokens, dirty_indices(write)),
-                Tokens;
+                [Tokens];
             true ->
                 QH = search_table(Tokens, 0),
                 qlc:fold(
