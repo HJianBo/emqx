@@ -50,6 +50,8 @@
 
 -export([reindex/2, reindex_status/0]).
 
+-export([import_via_raw_record/1]).
+
 -ifdef(TEST).
 -export([populate_index_meta/0]).
 -export([reindex/3]).
@@ -295,6 +297,13 @@ reindex_status() ->
         _ ->
             false
     end.
+
+import_via_raw_record(#retained_message{
+    topic = TopicTokens,
+    msg = Msg,
+    expiry_time = ExpiryTime
+}) ->
+    do_store_retained(Msg, TopicTokens, ExpiryTime).
 
 %%--------------------------------------------------------------------
 %% Internal functions

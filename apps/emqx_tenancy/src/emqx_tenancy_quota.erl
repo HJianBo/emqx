@@ -30,7 +30,7 @@
 -export([load/0, unload/0]).
 
 %% Management APIs
--export([create/2, update/2, remove/1, info/1]).
+-export([create/2, update/2, remove/1, info/1, refresh/0]).
 
 -export([cleanup_node_down/1]).
 
@@ -183,6 +183,10 @@ remove(TenantId) ->
 info(TenantId) ->
     do_info(TenantId).
 
+-spec refresh() -> ok.
+refresh() ->
+    call(refresh, infinity).
+
 multicall(M, F, A) ->
     Nodes = mria_mnesia:running_nodes(),
     case emqx_rpc:multicall(Nodes, M, F, A) of
@@ -235,7 +239,10 @@ do_info(TenantId) ->
     call({info, TenantId}).
 
 call(Msg) ->
-    gen_server:call(?MODULE, Msg).
+    call(Msg, 5000).
+
+call(Msg, Timeout) ->
+    gen_server:call(?MODULE, Msg, Timeout).
 
 cast(Msg) ->
     gen_server:cast(?MODULE, Msg).
@@ -405,7 +412,10 @@ handle_call(
     State = #{buffer := Buffer}
 ) ->
     {Reply, Buffer1} = do_incr(N, TenantId, Resource, Buffer),
-    {reply, Reply, submit(TenantId, State#{buffer := Buffer1})}.
+    {reply, Reply, submit(TenantId, State#{buffer := Buffer1})};
+handle_call(refresh, _From, State) ->
+    Buffer = load_tenants_used(),
+    {reply, ok, State#{buffer := Buffer}}.
 
 handle_cast({released, N, TenantId, Resource}, State = #{buffer := Buffer}) ->
     Buffer1 = do_release(N, TenantId, Resource, Buffer),

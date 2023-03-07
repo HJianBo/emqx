@@ -157,7 +157,8 @@ do_delete(Id) ->
     mnesia:delete(?TENANCY, Id, write),
     %% delete authn/authz related users
     emqx_authn_mnesia:do_tenant_deleted(Id),
-    emqx_authz_mnesia:do_tenant_deleted(Id).
+    emqx_authz_mnesia:do_tenant_deleted(Id),
+    emqx_retainer_mnesia:delete_message(undefined, <<"$tenants/", Id/binary, "/#">>).
 
 format(Tenants) when is_list(Tenants) ->
     [format(Tenant) || Tenant <- Tenants];
