@@ -303,7 +303,12 @@ import_via_raw_record(#retained_message{
     msg = Msg,
     expiry_time = ExpiryTime
 }) ->
-    do_store_retained(Msg, TopicTokens, ExpiryTime).
+    case ets:member(?TAB_MESSAGE, TopicTokens) of
+        true ->
+            {error, already_existed};
+        false ->
+            do_store_retained(Msg, TopicTokens, ExpiryTime)
+    end.
 
 %%--------------------------------------------------------------------
 %% Internal functions
