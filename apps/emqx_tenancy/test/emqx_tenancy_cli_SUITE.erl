@@ -32,6 +32,27 @@
     ]
 ).
 
+-define(RETAINER_CONF, <<
+    ""
+    "\n"
+    "retainer {\n"
+    "    enable = true\n"
+    "    msg_clear_interval = 0s\n"
+    "    msg_expiry_interval = 0s\n"
+    "    max_payload_size = 1MB\n"
+    "    flow_control {\n"
+    "        batch_read_number = 0\n"
+    "        batch_deliver_number = 0\n"
+    "     }\n"
+    "   backend {\n"
+    "        type = built_in_database\n"
+    "        storage_type = ram\n"
+    "        max_retained_messages = 0\n"
+    "     }\n"
+    "}"
+    ""
+>>).
+
 %%--------------------------------------------------------------------
 %% setup
 %%--------------------------------------------------------------------
@@ -39,13 +60,15 @@
 all() -> emqx_common_test_helpers:all(?MODULE).
 
 init_per_suite(Config) ->
+    ok = emqx_config:init_load(emqx_retainer_schema, ?RETAINER_CONF),
     emqx_dashboard_api_test_helpers:init_suite(
-        [emqx_conf, emqx_authn, emqx_authz, emqx_tenancy],
+        [emqx_conf, emqx_authn, emqx_authz, emqx_retainer, emqx_tenancy],
         fun set_special_configs/1
     ),
     Config.
 
 end_per_suite(_) ->
+    ok = emqx_config:delete_override_conf_files(),
     %% revert to default value
     {ok, _} = emqx:update_config(
         [authorization],
@@ -55,7 +78,9 @@ end_per_suite(_) ->
             <<"sources">> => []
         }
     ),
-    emqx_dashboard_api_test_helpers:end_suite([emqx_tenancy, emqx_authn, emqx_authz, emqx_conf]).
+    emqx_dashboard_api_test_helpers:end_suite(
+        [emqx_tenancy, emqx_retainer, emqx_authn, emqx_authz, emqx_conf]
+    ).
 
 set_special_configs(emqx) ->
     %% restart gen_rpc with `stateless` mode
@@ -90,13 +115,19 @@ t_export_import(_Config) ->
     monitor_ctl_print(),
 
     %% export
-    ok = emqx_tenancy_cli:'tenants-data'(["export", "all"]),
+    ok = emqx_tenancy_cli:'tenant-data'(["export", "all"]),
     "Exporting to " ++ Path1 = recv_ctl_print(),
-    ?assertMatch("Exported 1 tenants, 2 authn records, 2 authz records" ++ _, recv_ctl_print()),
+    ?assertMatch(
+        "Exported 1 tenants, 2 authn records, 2 authz records, 0 retained msgs." ++ _,
+        recv_ctl_print()
+    ),
     %% export twice
-    ok = emqx_tenancy_cli:'tenants-data'(["export", "all"]),
+    ok = emqx_tenancy_cli:'tenant-data'(["export", "all"]),
     "Exporting to " ++ Path2 = recv_ctl_print(),
-    ?assertMatch("Exported 1 tenants, 2 authn records, 2 authz records" ++ _, recv_ctl_print()),
+    ?assertMatch(
+        "Exported 1 tenants, 2 authn records, 2 authz records, 0 retained msgs." ++ _,
+        recv_ctl_print()
+    ),
 
     ?assertNotEqual(Path1, Path2),
 
@@ -107,24 +138,30 @@ t_export_import(_Config) ->
 
     %% import
     Path = string:trim(Path2),
-    ok = emqx_tenancy_cli:'tenants-data'(["import", Path]),
+    ok = emqx_tenancy_cli:'tenant-data'(["import", Path]),
     ?assertEqual("Importing from " ++ Path ++ "\n", recv_ctl_print()),
-    ?assertMatch("Try to import 1 tenant records..\n", recv_ctl_print()),
+    ?assertMatch("Try to import tenant records..\n", recv_ctl_print()),
     ?assertMatch("  succeed: 1, existed: 0, failed: 0\n", recv_ctl_print()),
-    ?assertMatch("Try to import 2 authn records..\n", recv_ctl_print()),
+    ?assertMatch("Try to import authn records..\n", recv_ctl_print()),
     ?assertMatch("  succeed: 2, existed: 0, failed: 0\n", recv_ctl_print()),
-    ?assertMatch("Try to import 2 authz records..\n", recv_ctl_print()),
+    ?assertMatch("Try to import authz records..\n", recv_ctl_print()),
     ?assertMatch("  succeed: 2, existed: 0, failed: 0\n", recv_ctl_print()),
+    ?assertMatch("Try to import retained messages..\n", recv_ctl_print()),
+    ?assertMatch("  succeed: 0, existed: 0, failed: 0\n", recv_ctl_print()),
+    ?assertMatch("Try to refresh usage..\n", recv_ctl_print()),
     ?assertMatch("Done\n", recv_ctl_print()),
     %% import twice
-    ok = emqx_tenancy_cli:'tenants-data'(["import", Path]),
+    ok = emqx_tenancy_cli:'tenant-data'(["import", Path]),
     ?assertEqual("Importing from " ++ Path ++ "\n", recv_ctl_print()),
-    ?assertMatch("Try to import 1 tenant records..\n", recv_ctl_print()),
+    ?assertMatch("Try to import tenant records..\n", recv_ctl_print()),
     ?assertMatch("  succeed: 0, existed: 1, failed: 0\n", recv_ctl_print()),
-    ?assertMatch("Try to import 2 authn records..\n", recv_ctl_print()),
+    ?assertMatch("Try to import authn records..\n", recv_ctl_print()),
     ?assertMatch("  succeed: 0, existed: 2, failed: 0\n", recv_ctl_print()),
-    ?assertMatch("Try to import 2 authz records..\n", recv_ctl_print()),
+    ?assertMatch("Try to import authz records..\n", recv_ctl_print()),
     ?assertMatch("  succeed: 0, existed: 2, failed: 0\n", recv_ctl_print()),
+    ?assertMatch("Try to import retained messages..\n", recv_ctl_print()),
+    ?assertMatch("  succeed: 0, existed: 0, failed: 0\n", recv_ctl_print()),
+    ?assertMatch("Try to refresh usage..\n", recv_ctl_print()),
     ?assertMatch("Done\n", recv_ctl_print()),
     %% verify the imported records
     {ok, #{<<"data">> := List1}} = list_tenant([]),

@@ -83,7 +83,7 @@ export(all, Path) ->
                 ok = commit(Fd),
                 ok = close(Fd),
                 emqx_ctl:print(
-                    "Exported ~w tenants, ~w authn users, ~w authz rules, ~w retained msgs.~n",
+                    "Exported ~w tenants, ~w authn records, ~w authz records, ~w retained msgs.~n",
                     [lists:nth(1, Res), lists:nth(2, Res), lists:nth(3, Res), lists:nth(4, Res)]
                 )
             catch
@@ -154,7 +154,7 @@ restore(emqx_acl, "1.1.0", ACL, {Succ, Existed, Failed}) ->
             {Succ, Existed, Failed + 1}
     end;
 restore(emqx_retainer_message, "1.1.0", 'start', undefined) ->
-    emqx_ctl:print("Try to import retained message records..~n"),
+    emqx_ctl:print("Try to import retained messages..~n"),
     {_Succ = 0, _Existed = 0, _Failed = 0};
 restore(emqx_retainer_message, "1.1.0", Msg, {Succ, Existed, Failed}) ->
     case emqx_retainer_mnesia:import_via_raw_record(Msg) of
