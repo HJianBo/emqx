@@ -157,7 +157,8 @@ do_delete(Id) ->
     mnesia:delete(?TENANCY, Id, write),
     %% delete authn/authz related users
     emqx_authn_mnesia:do_tenant_deleted(Id),
-    emqx_authz_mnesia:do_tenant_deleted(Id).
+    emqx_authz_mnesia:do_tenant_deleted(Id),
+    emqx_retainer_mnesia:delete_message(undefined, <<"$tenants/", Id/binary, "/#">>).
 
 format(Tenants) when is_list(Tenants) ->
     [format(Tenant) || Tenant <- Tenants];
@@ -199,9 +200,10 @@ to_tenant(Tenant) ->
 default_configs() ->
     #{
         <<"quotas">> => #{
-            <<"max_sessions">> => 1000,
-            <<"max_authn_users">> => 2000,
-            <<"max_authz_rules">> => 2000
+            <<"max_sessions">> => ?MAX_SESSION,
+            <<"max_authn_users">> => ?MAX_AUTHN_USERS,
+            <<"max_authz_rules">> => ?MAX_AUTHZ_RULES,
+            <<"max_retained_msgs">> => ?MAX_RETAINED_MSGS
         },
         <<"limiters">> => #{
             <<"max_messages_in">> => 1000,
@@ -221,7 +223,8 @@ with_quota_config(Config0) when is_map(Config0) ->
     Keys = [
         <<"max_sessions">>,
         <<"max_authn_users">>,
-        <<"max_authz_rules">>
+        <<"max_authz_rules">>,
+        <<"max_retained_msgs">>
     ],
     Config = maps:get(<<"quotas">>, Config0),
     emqx_map_lib:safe_atom_key_map(maps:with(Keys, Config)).

@@ -18,7 +18,7 @@
 
 -include("emqx.hrl").
 
--export([with_tenant/2, without_tenant/1]).
+-export([with_tenant/2, without_tenant/1, tenant_id/1]).
 
 -export([update_clientid/2, is_undefined_clientid/1]).
 
@@ -74,6 +74,12 @@ is_undefined_clientid({_, undefined}) -> true;
 is_undefined_clientid({_, _}) -> false;
 is_undefined_clientid(I) when ?IS_NORMAL_ID(I) -> false;
 is_undefined_clientid(V) -> error(badarg, [V]).
+
+-spec tenant_id(grouped_clientid()) -> emqx_types:tenant_id().
+tenant_id({Tenant, _ClientId}) ->
+    Tenant;
+tenant_id(_) ->
+    ?NO_TENANT.
 
 %%--------------------------------------------------------------------
 %% eunits
