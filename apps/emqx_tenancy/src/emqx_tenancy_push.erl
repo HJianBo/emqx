@@ -32,7 +32,7 @@
     code_change/3
 ]).
 
--define(LIMIT, 100).
+-define(LIMIT, 1000).
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
