@@ -95,7 +95,7 @@
 -define(MAX_SESSION, 1000).
 -define(MAX_AUTHN_USERS, 2000).
 -define(MAX_AUTHZ_RULES, 2000).
--define(MAX_RETAINED_MSGS, 1000).
+-define(MAX_RETAINED_MSGS, 2000).
 
 %% type references
 

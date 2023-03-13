@@ -38,7 +38,7 @@ unload() ->
     lists:foreach(fun(Cmd) -> emqx_ctl:unregister_command(Cmd) end, Cmds).
 
 is_cmd(Fun) ->
-    not lists:member(Fun, [init, load, unload, module_info]).
+    not lists:member(Fun, [init, load, unload, module_info, restore]).
 
 %%--------------------------------------------------------------------
 %% commands
