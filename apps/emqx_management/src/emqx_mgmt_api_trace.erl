@@ -361,7 +361,7 @@ trace(get, _Params) ->
                 fun(#{start_at := A}, #{start_at := B}) -> A > B end,
                 emqx_trace:format(List0)
             ),
-            Nodes = mria_mnesia:running_nodes(),
+            Nodes = mria:running_nodes(),
             TraceSize = wrap_rpc(emqx_mgmt_trace_proto_v2:get_trace_size(Nodes)),
             AllFileSize = lists:foldl(fun(F, Acc) -> maps:merge(Acc, F) end, #{}, TraceSize),
             Now = erlang:system_time(second),
@@ -430,7 +430,7 @@ format_trace(Trace0) ->
     LogSize = lists:foldl(
         fun(Node, Acc) -> Acc#{Node => 0} end,
         #{},
-        mria_mnesia:running_nodes()
+        mria:running_nodes()
     ),
     Trace2 = maps:without([enable, filter], Trace1),
     Trace2#{
@@ -511,13 +511,13 @@ group_trace_file(ZipDir, TraceLog, TraceFiles) ->
     ).
 
 collect_trace_file(undefined, TraceLog) ->
-    Nodes = mria_mnesia:running_nodes(),
+    Nodes = mria:running_nodes(),
     wrap_rpc(emqx_mgmt_trace_proto_v2:trace_file(Nodes, TraceLog));
 collect_trace_file(Node, TraceLog) ->
     wrap_rpc(emqx_mgmt_trace_proto_v2:trace_file([Node], TraceLog)).
 
 collect_trace_file_detail(TraceLog) ->
-    Nodes = mria_mnesia:running_nodes(),
+    Nodes = mria:running_nodes(),
     wrap_rpc(emqx_mgmt_trace_proto_v2:trace_file_detail(Nodes, TraceLog)).
 
 wrap_rpc({GoodRes, BadNodes}) ->
@@ -639,7 +639,7 @@ parse_node(Query, Default) ->
                 {ok, Default};
             {ok, NodeBin} ->
                 Node = binary_to_existing_atom(NodeBin),
-                true = lists:member(Node, mria_mnesia:running_nodes()),
+                true = lists:member(Node, mria:running_nodes()),
                 {ok, Node}
         end
     catch

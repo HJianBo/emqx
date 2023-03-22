@@ -403,7 +403,7 @@ schema("/nodes/:node/bridges/:id/operation/:operation") ->
     {200,
         zip_bridges([
             [format_resp(Data, Node) || Data <- emqx_bridge_proto_v1:list_bridges(Node)]
-         || Node <- mria_mnesia:running_nodes()
+         || Node <- mria:running_nodes()
         ])}.
 
 '/bridges/:id'(get, #{bindings := #{id := Id}}) ->
@@ -463,7 +463,7 @@ schema("/nodes/:node/bridges/:id/operation/:operation") ->
     ).
 
 lookup_from_all_nodes(BridgeType, BridgeName, SuccCode) ->
-    Nodes = mria_mnesia:running_nodes(),
+    Nodes = mria:running_nodes(),
     case is_ok(emqx_bridge_proto_v1:lookup_from_all_nodes(Nodes, BridgeType, BridgeName)) of
         {ok, [{ok, _} | _] = Results} ->
             {SuccCode, format_bridge_info([R || {ok, R} <- Results])};
@@ -502,7 +502,7 @@ lookup_from_local_node(BridgeType, BridgeName) ->
                         {500, error_msg('INTERNAL_ERROR', Reason)}
                 end;
             OperFunc ->
-                Nodes = mria_mnesia:running_nodes(),
+                Nodes = mria:running_nodes(),
                 operation_to_all_nodes(Nodes, OperFunc, BridgeType, BridgeName)
         end
     ).
