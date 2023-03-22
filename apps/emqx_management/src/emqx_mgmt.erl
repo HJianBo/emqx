@@ -166,7 +166,7 @@ stopped_node_info(Node) ->
 %%--------------------------------------------------------------------
 
 list_brokers() ->
-    Running = mria_mnesia:running_nodes(),
+    Running = mria:running_nodes(),
     [{Node, Broker} || #{node := Node} = Broker <- broker_info(Running)].
 
 lookup_broker(Node) ->
@@ -185,7 +185,7 @@ broker_info(Nodes) ->
 %%--------------------------------------------------------------------
 
 get_metrics() ->
-    nodes_info_count([get_metrics(Node) || Node <- mria_mnesia:running_nodes()]).
+    nodes_info_count([get_metrics(Node) || Node <- mria:running_nodes()]).
 
 get_metrics(Node) ->
     unwrap_rpc(emqx_proto_v1:get_metrics(Node)).
@@ -205,7 +205,7 @@ get_stats() ->
             Stats = get_stats(Node),
             delete_keys(Stats, GlobalStatsKeys)
         end
-     || Node <- mria_mnesia:running_nodes()
+     || Node <- mria:running_nodes()
     ]),
     GlobalStats = maps:with(GlobalStatsKeys, maps:from_list(get_stats(node()))),
     maps:merge(CountStats, GlobalStats).
@@ -237,12 +237,12 @@ nodes_info_count(PropList) ->
 lookup_client({clientid, ClientId}, FormatFun) ->
     lists:append([
         lookup_client(Node, {clientid, ClientId}, FormatFun)
-     || Node <- mria_mnesia:running_nodes()
+     || Node <- mria:running_nodes()
     ]);
 lookup_client({username, Username}, FormatFun) ->
     lists:append([
         lookup_client(Node, {username, Username}, FormatFun)
-     || Node <- mria_mnesia:running_nodes()
+     || Node <- mria:running_nodes()
     ]).
 
 lookup_client(Node, Key, {M, F}) ->
@@ -264,7 +264,7 @@ kickout_client({ClientID, FormatFun}) ->
         [] ->
             {error, not_found};
         _ ->
-            Results = [kickout_client(Node, ClientID) || Node <- mria_mnesia:running_nodes()],
+            Results = [kickout_client(Node, ClientID) || Node <- mria:running_nodes()],
             check_results(Results)
     end.
 
@@ -275,7 +275,7 @@ list_authz_cache(ClientId) ->
     call_client(ClientId, list_authz_cache).
 
 list_client_subscriptions(ClientId) ->
-    Results = [client_subscriptions(Node, ClientId) || Node <- mria_mnesia:running_nodes()],
+    Results = [client_subscriptions(Node, ClientId) || Node <- mria:running_nodes()],
     Filter =
         fun
             ({error, _}) ->
@@ -292,18 +292,18 @@ client_subscriptions(Node, ClientId) ->
     {Node, unwrap_rpc(emqx_broker_proto_v1:list_client_subscriptions(Node, ClientId))}.
 
 clean_authz_cache(ClientId) ->
-    Results = [clean_authz_cache(Node, ClientId) || Node <- mria_mnesia:running_nodes()],
+    Results = [clean_authz_cache(Node, ClientId) || Node <- mria:running_nodes()],
     check_results(Results).
 
 clean_authz_cache(Node, ClientId) ->
     unwrap_rpc(emqx_proto_v1:clean_authz_cache(Node, ClientId)).
 
 clean_authz_cache_all() ->
-    Results = [{Node, clean_authz_cache_all(Node)} || Node <- mria_mnesia:running_nodes()],
+    Results = [{Node, clean_authz_cache_all(Node)} || Node <- mria:running_nodes()],
     wrap_results(Results).
 
 clean_pem_cache_all() ->
-    Results = [{Node, clean_pem_cache_all(Node)} || Node <- mria_mnesia:running_nodes()],
+    Results = [{Node, clean_pem_cache_all(Node)} || Node <- mria:running_nodes()],
     wrap_results(Results).
 
 wrap_results(Results) ->
@@ -331,7 +331,7 @@ set_keepalive(_ClientId, _Interval) ->
 
 %% @private
 call_client(ClientId, Req) ->
-    Results = [call_client(Node, ClientId, Req) || Node <- mria_mnesia:running_nodes()],
+    Results = [call_client(Node, ClientId, Req) || Node <- mria:running_nodes()],
     Expected = lists:filter(
         fun
             ({error, _}) -> false;
@@ -386,7 +386,7 @@ list_subscriptions(Node) ->
 list_subscriptions_via_topic(Topic, FormatFun) ->
     lists:append([
         list_subscriptions_via_topic(Node, Topic, FormatFun)
-     || Node <- mria_mnesia:running_nodes()
+     || Node <- mria:running_nodes()
     ]).
 
 list_subscriptions_via_topic(Node, Topic, _FormatFun = {M, F}) ->
@@ -396,7 +396,7 @@ list_subscriptions_via_topic(Node, Topic, _FormatFun = {M, F}) ->
     end.
 
 lookup_subscriptions(ClientId) ->
-    lists:append([lookup_subscriptions(Node, ClientId) || Node <- mria_mnesia:running_nodes()]).
+    lists:append([lookup_subscriptions(Node, ClientId) || Node <- mria:running_nodes()]).
 
 lookup_subscriptions(Node, ClientId) ->
     unwrap_rpc(emqx_broker_proto_v1:list_client_subscriptions(Node, ClientId)).
@@ -406,7 +406,7 @@ lookup_subscriptions(Node, ClientId) ->
 %%--------------------------------------------------------------------
 
 subscribe(ClientId, TopicTables) ->
-    subscribe(mria_mnesia:running_nodes(), ClientId, TopicTables).
+    subscribe(mria:running_nodes(), ClientId, TopicTables).
 
 subscribe([Node | Nodes], ClientId, TopicTables) ->
     case unwrap_rpc(emqx_management_proto_v3:subscribe(Node, ClientId, TopicTables)) of
@@ -431,7 +431,7 @@ publish(Msg) ->
 -spec unsubscribe(emqx_clientid:grouped_clientid(), emqx_types:topic()) ->
     {unsubscribe, _} | {error, channel_not_found}.
 unsubscribe(ClientId, Topic) ->
-    unsubscribe(mria_mnesia:running_nodes(), ClientId, Topic).
+    unsubscribe(mria:running_nodes(), ClientId, Topic).
 
 -spec unsubscribe([node()], emqx_clientid:grouped_clientid(), emqx_types:topic()) ->
     {unsubscribe, _} | {error, channel_not_found}.
@@ -454,7 +454,7 @@ do_unsubscribe(ClientId, Topic) ->
 -spec unsubscribe_batch(emqx_clientid:grouped_clientid(), [emqx_types:topic()]) ->
     {unsubscribe, _} | {error, channel_not_found}.
 unsubscribe_batch(ClientId, Topics) ->
-    unsubscribe_batch(mria_mnesia:running_nodes(), ClientId, Topics).
+    unsubscribe_batch(mria:running_nodes(), ClientId, Topics).
 
 -spec unsubscribe_batch([node()], emqx_clientid:grouped_clientid(), [emqx_types:topic()]) ->
     {unsubscribe_batch, _} | {error, channel_not_found}.
@@ -479,7 +479,7 @@ do_unsubscribe_batch(ClientId, Topics) ->
 %%--------------------------------------------------------------------
 
 get_alarms(Type) ->
-    [{Node, get_alarms(Node, Type)} || Node <- mria_mnesia:running_nodes()].
+    [{Node, get_alarms(Node, Type)} || Node <- mria:running_nodes()].
 
 get_alarms(Node, Type) ->
     add_duration_field(unwrap_rpc(emqx_proto_v1:get_alarms(Node, Type))).
@@ -488,7 +488,7 @@ deactivate(Node, Name) ->
     unwrap_rpc(emqx_proto_v1:deactivate_alarm(Node, Name)).
 
 delete_all_deactivated_alarms() ->
-    [delete_all_deactivated_alarms(Node) || Node <- mria_mnesia:running_nodes()].
+    [delete_all_deactivated_alarms(Node) || Node <- mria:running_nodes()].
 
 delete_all_deactivated_alarms(Node) ->
     unwrap_rpc(emqx_proto_v1:delete_all_deactivated_alarms(Node)).
