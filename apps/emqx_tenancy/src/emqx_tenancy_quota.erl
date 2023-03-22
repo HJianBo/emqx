@@ -188,7 +188,7 @@ refresh() ->
     call(refresh, infinity).
 
 multicall(M, F, A) ->
-    Nodes = mria_mnesia:running_nodes(),
+    Nodes = mria:running_nodes(),
     case emqx_rpc:multicall(Nodes, M, F, A) of
         {Result, []} -> return_ok_or_error(lists:zip(Nodes, Result));
         {_, [Node | _]} -> {error, {Node, badrpc}}
