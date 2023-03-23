@@ -115,8 +115,8 @@
 %%--------------------------------------------------------------------
 
 list_nodes() ->
-    Running = mria_mnesia:cluster_nodes(running),
-    Stopped = mria_mnesia:cluster_nodes(stopped),
+    Running = mria:cluster_nodes(running),
+    Stopped = mria:cluster_nodes(stopped),
     DownNodes = lists:map(fun stopped_node_info/1, Stopped),
     [{Node, Info} || #{node := Node} = Info <- node_info(Running)] ++ DownNodes.
 

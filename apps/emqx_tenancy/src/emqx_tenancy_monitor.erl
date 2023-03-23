@@ -50,7 +50,7 @@ current_rate(Tenant) ->
             (_Node, Error) ->
                 Error
         end,
-    case lists:foldl(Fun, #{}, mria_mnesia:cluster_nodes(running)) of
+    case lists:foldl(Fun, #{}, mria:cluster_nodes(running)) of
         {badrpc, Reason} ->
             {badrpc, Reason};
         Rate ->
