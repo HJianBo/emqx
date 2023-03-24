@@ -297,7 +297,9 @@ on_quota_sessions(acquire, ClientInfo = #{tenant_id := TenantId}, _LastPermision
             {stop, deny}
     end;
 on_quota_sessions(release, #{tenant_id := TenantId}, _LastPermision) ->
-    exec_quota_action(release, [TenantId, sessions]).
+    exec_quota_action(release, [TenantId, sessions]);
+on_quota_sessions({release, N}, #{tenant_id := TenantId}, _LastPermision) ->
+    exec_quota_action({release, N}, [TenantId, sessions]).
 
 is_tenant_enabled(TenantId) ->
     case ets:lookup(?TENANCY, TenantId) of
@@ -335,7 +337,7 @@ exec_quota_action({Action, N}, Args) when Action == acquire; Action == release -
     erlang:apply(?MODULE, Action, [N | Args]).
 
 acquire(N, TenantId, Resource) ->
-    case call({acquire, N, TenantId, Resource}) of
+    case call({acquire, N, TenantId, Resource}, infinity) of
         allow ->
             {stop, allow};
         deny ->

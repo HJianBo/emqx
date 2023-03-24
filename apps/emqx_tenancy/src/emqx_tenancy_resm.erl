@@ -133,16 +133,24 @@ code_change(_OldVsn, State, _Extra) ->
 %%--------------------------------------------------------------------
 
 release_conns(Items) ->
-    lists:foreach(
-        fun({Pid, {TenantId, ClientId}}) ->
-            _ = emqx_tenancy_quota:on_quota_sessions(
-                release,
-                #{tenant_id => TenantId},
-                ok
-            ),
-            ets:delete_object(?CONNS_TAB, {TenantId, Pid, ClientId})
+    Quotas = lists:foldl(
+        fun({Pid, {TenantId, ClientId}}, Acc) ->
+            N = maps:get(TenantId, Acc, 0),
+            ets:delete_object(?CONNS_TAB, {TenantId, Pid, ClientId}),
+            maps:put(TenantId, N + 1, Acc)
         end,
+        #{},
         Items
+    ),
+    maps:foreach(
+        fun(K, V) ->
+            _ = emqx_tenancy_quota:on_quota_sessions(
+                {release, V},
+                #{tenant_id => K},
+                ok
+            )
+        end,
+        Quotas
     ).
 
 kick_all_sessions(TenantId) ->
