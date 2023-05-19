@@ -21,6 +21,9 @@
 
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("common_test/include/ct.hrl").
+-include_lib("snabbkaffe/include/test_macros.hrl").
+
+-define(SUITE_APPS, [emqx_conf, emqx_rule_engine]).
 
 -define(CONF_DEFAULT, <<"rule_engine {rules {}}">>).
 -define(SIMPLE_RULE(NAME_SUFFIX), #{
@@ -33,16 +36,107 @@
 -define(SIMPLE_RULE(ID, NAME_SUFFIX), ?SIMPLE_RULE(NAME_SUFFIX)#{<<"id">> => ID}).
 
 all() ->
-    emqx_common_test_helpers:all(?MODULE).
+    [
+        {group, single},
+        {group, cluster_later_join}
+    ].
+
+groups() ->
+    AllCTs = emqx_common_test_helpers:all(?MODULE),
+    ClusterLaterJoinOnlyCTs = [t_cluster_later_join_metrics],
+    [
+        {single, [], AllCTs -- ClusterLaterJoinOnlyCTs},
+        {cluster_later_join, [], ClusterLaterJoinOnlyCTs}
+    ].
+
+suite() ->
+    [{timestrap, {seconds, 60}}].
 
 init_per_suite(Config) ->
-    application:load(emqx_conf),
-    ok = emqx_common_test_helpers:load_config(emqx_rule_engine_schema, ?CONF_DEFAULT),
-    ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_rule_engine]),
     Config.
-
 end_per_suite(_Config) ->
-    emqx_common_test_helpers:stop_apps([emqx_conf, emqx_rule_engine]),
+    ok.
+
+init_per_group(cluster_later_join, Config) ->
+    Cluster = mk_cluster_specs(Config, #{join_to => undefined}),
+    ct:pal("Starting ~p", [Cluster]),
+    Nodes = [
+        emqx_common_test_helpers:start_slave(Name, Opts)
+     || {Name, Opts} <- Cluster
+    ],
+    [NodePrimary | NodesRest] = Nodes,
+    ok = erpc:call(NodePrimary, fun() -> init_node(primary) end),
+    _ = [ok = erpc:call(Node, fun() -> init_node(regular) end) || Node <- NodesRest],
+    [{group, cluster_later_join}, {cluster_nodes, Nodes}, {api_node, NodePrimary} | Config];
+init_per_group(_, Config) ->
+    application:load(emqx_conf),
+    ok = emqx_mgmt_api_test_util:init_suite(?SUITE_APPS),
+    ok = load_suite_config(emqx_rule_engine),
+    %%ok = emqx_common_test_helpers:start_apps([emqx_conf, emqx_rule_engine]),
+    [{group, single}, {api_node, node()} | Config].
+
+mk_cluster_specs(Config) ->
+    mk_cluster_specs(Config, #{}).
+
+mk_cluster_specs(Config, Opts) ->
+    Specs = [
+        {core, emqx_rule_engine_api_SUITE1, #{}},
+        {core, emqx_rule_engine_api_SUITE2, #{}}
+    ],
+    CommonOpts = #{
+        env => [{emqx, boot_modules, [broker]}],
+        apps => [],
+        % NOTE
+        % We need to start all those apps _after_ the cluster becomes stable, in the
+        % `init_node/1`. This is because usual order is broken in very subtle way:
+        % 1. Node starts apps including `mria` and `emqx_conf` which starts `emqx_cluster_rpc`.
+        % 2. The `emqx_cluster_rpc` sets up a mnesia table subscription during initialization.
+        % 3. In the meantime `mria` joins the cluster and notices it should restart.
+        % 4. Mnesia subscription becomes lost during restarts (god knows why).
+        % Yet we need to load them before, so that mria / mnesia will know which tables
+        % should be created in the cluster.
+        % TODO
+        % We probably should hide these intricacies behind the `emqx_common_test_helpers`.
+        load_apps => ?SUITE_APPS ++ [emqx_dashboard],
+        env_handler => fun load_suite_config/1,
+        load_schema => false,
+        join_to => maps:get(join_to, Opts, true),
+        priv_data_dir => ?config(priv_dir, Config)
+    },
+    emqx_common_test_helpers:emqx_cluster(Specs, CommonOpts).
+init_node(Type) ->
+    ok = emqx_common_test_helpers:start_apps(?SUITE_APPS, fun load_suite_config/1),
+    case Type of
+        primary ->
+            ok = emqx_config:put(
+                [dashboard, listeners],
+                #{http => #{enable => true, bind => 18083}}
+            ),
+            ok = emqx_dashboard:start_listeners(),
+            ready = emqx_dashboard_listener:regenerate_minirest_dispatch(),
+            emqx_common_test_http:create_default_app();
+        regular ->
+            ok
+    end.
+
+load_suite_config(emqx_rule_engine) ->
+    ok = emqx_common_test_helpers:load_config(
+        emqx_rule_engine_schema,
+        ?CONF_DEFAULT
+    );
+load_suite_config(_) ->
+    ok.
+
+end_per_group(cluster_later_join, Config) ->
+    ok = lists:foreach(
+        fun(Node) ->
+            _ = erpc:call(Node, emqx_common_test_helpers, stop_apps, [?SUITE_APPS]),
+            emqx_common_test_helpers:stop_slave(Node)
+        end,
+        ?config(cluster_nodes, Config)
+    );
+end_per_group(_, _Config) ->
+    emqx_mgmt_api_test_util:end_suite(?SUITE_APPS),
     ok.
 
 init_per_testcase(t_crud_rule_api, Config) ->
@@ -54,14 +148,18 @@ init_per_testcase(_, Config) ->
 end_per_testcase(t_crud_rule_api, Config) ->
     meck:unload(emqx_utils_json),
     end_per_testcase(common, Config);
-end_per_testcase(_, _Config) ->
-    {200, #{data := Rules}} =
-        emqx_rule_engine_api:'/rules'(get, #{query_string => #{}}),
+end_per_testcase(_, Config) ->
+    APINode = ?config(api_node, Config),
+    {200, #{data := Rules}} = erpc:call(APINode, emqx_rule_engine_api, '/rules', [
+        get, #{query_string => #{}}
+    ]),
     lists:foreach(
         fun(#{id := Id}) ->
-            {204} = emqx_rule_engine_api:'/rules/:id'(
-                delete,
-                #{bindings => #{id => Id}}
+            {204} = erpc:call(
+                APINode,
+                emqx_rule_engine_api,
+                '/rules/:id',
+                [delete, #{bindings => #{id => Id}}]
             )
         end,
         Rules
@@ -289,6 +387,45 @@ t_rule_engine(_) ->
         body => #{<<"rules">> => #{<<"some_rule">> => SomeRule}}
     }),
     {400, _} = emqx_rule_engine_api:'/rule_engine'(put, #{body => #{<<"something">> => <<"weird">>}}).
+
+t_cluster_later_join_metrics(Config) ->
+    APINode = ?config(api_node, Config),
+    ClusterNodes = ?config(cluster_nodes, Config),
+    [OtherNode | _] = ClusterNodes -- [APINode],
+    RuleId = <<"my_rule">>,
+    RuleParams = ?SIMPLE_RULE(RuleId, <<>>),
+    ApplyMFA = fun(M, F, A) -> erpc:call(APINode, M, F, A) end,
+    ?check_trace(
+        begin
+            %% Create a bridge on only one of the nodes.
+            ?assertMatch(
+               {201, _Rule},
+               ApplyMFA(emqx_rule_engine_api, '/rules', [post, #{body => RuleParams}])
+              ),
+            %% Pre-condition.
+            ?assertMatch(
+                {200, #{
+                    metrics := #{matched := _},
+                    node_metrics := [_ | _]
+                }},
+                ApplyMFA(emqx_rule_engine_api, '/rules/:id/metrics', [get, #{bindings => #{id => RuleId}}])
+            ),
+            %% Now join the other node join with the api node.
+            ok = erpc:call(OtherNode, ekka, join, [APINode]),
+            %% Check metrics; shouldn't crash even if the bridge is not
+            %% ready on the node that just joined the cluster.
+            ?assertMatch(
+                {ok, 200, #{
+                    metrics := #{matched := _},
+                    node_metrics := [#{metrics := #{}}, #{metrics := #{}} | _]
+                }},
+                ApplyMFA(emqx_rule_engine_api, '/rules/:id/metrics', [get, #{bindings => #{id => RuleId}}])
+            ),
+            ok
+        end,
+        []
+    ),
+    ok.
 
 rules_fixture(N) ->
     lists:map(
