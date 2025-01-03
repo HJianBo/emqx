@@ -40,8 +40,8 @@ namespace() -> "dashboard_sso".
 
 api_spec() ->
     emqx_dashboard_swagger:spec(?MODULE, #{
-        translate_body => false,
-        check_schema => fun ?MODULE:check_api_schema/2
+        translate_body => false
+        %%check_schema => fun ?MODULE:check_api_schema/2
     }).
 
 check_api_schema(Params, Meta) ->
@@ -126,7 +126,7 @@ sp_saml_callback(post, Req) ->
 %%--------------------------------------------------------------------
 
 response_schema(302) ->
-    emqx_dashboard_swagger:error_codes([?REDIRECT], ?DESC(redirect));
+    emqx_dashboard_swagger:error_codes(['REDIRECT'], ?DESC(redirect));
 response_schema(401) ->
     emqx_dashboard_swagger:error_codes([?BAD_USERNAME_OR_PWD], ?DESC(login_failed401));
 response_schema(404) ->
